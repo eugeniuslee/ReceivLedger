@@ -2,6 +2,10 @@
 
 React 18, TypeScript, Vite 5 and ethers v6 frontend for the deployed ReceivLedger contract. All dashboard and workflow data is read from Sepolia; this app does not use a fictional in-browser ledger.
 
+## Current local work: Batch 2 Stage A
+
+Home navigation, same-wallet page restoration, wallet profile controls, a smaller blockchain refresh control, Settings, Help & Support and About are implemented locally. The existing contract workflows are preserved. Registration names, applications and private documents are not configured; the profile component currently uses an explicit wallet-role label. See [Batch 2 progress and setup](docs/BATCH2.md) for validation, manual checks and the Supabase dependency before Stages B/C.
+
 ## Requirements and commands
 
 - Node.js 18 or newer and npm
@@ -75,4 +79,4 @@ On Windows PowerShell, if `npm` is blocked by script execution policy, use `npm.
 
 ## Tests
 
-`npm test` includes Solidity-mirroring demo-ledger unit tests retained as reference, wallet-role classification/navigation tests, invoice mapping/action tests, wallet-staleness and event-cache tests, plus transaction grouping tests. Automated tests do not connect to Sepolia, exercise MetaMask confirmations, or render manager modals in a browser.
+`npm test` runs 69 tests, including Solidity-mirroring demo-ledger unit tests retained as reference, wallet-role classification/navigation tests, invoice mapping/action tests, wallet-staleness and event-cache tests, transaction grouping tests, and rendered account/navigation and wallet-provider regression tests. Automated tests do not connect to Sepolia, exercise MetaMask confirmations, verify private backend policies, or render manager modals in a real browser.

@@ -2,7 +2,7 @@
 
 ## Current implementation
 
-Batch 1 is complete locally, including the user-reported manual testing of wallet switching and inactive investors. The current priority is private GitHub setup and Vercel deployment. Do not begin registration, document storage or financial-reporting features without a separate request.
+Batch 1 is complete and the user reports a GitHub repository and deployed Vercel site. Batch 2 Stage A is now implemented locally; Stage B/C stop at the missing Supabase configuration. See `BATCH2.md` for the current changes, security design and setup dependency. The current workspace still has no `.git` directory. Do not push, deploy or change cloud resources without approval, and do not begin Batch 3.
 
 The running application reads the deployed Sepolia contract, rather than the retained demo ledger. Fund capital, financing and repayment are simulated SGD accounting recorded on-chain; they do not transfer investment proceeds or financing payments. RLU has 0 decimals.
 
@@ -28,10 +28,10 @@ Wallet changes invalidate pending data requests. Role checks and transaction gua
 
 ## Verification and deployment
 
-The latest agent verification passed TypeScript, 49 unit tests and the production build. The user reports successful local MetaMask tests. These do not establish that the hosted URL has been tested; repeat the read-only role, balance, invoice and history checks there after deployment.
+The latest Stage A agent verification passed TypeScript, 69 tests and the production build. The user reports successful Batch 1 MetaMask tests. Stage A visual/browser and real-wallet checks remain manual; no connected browser was available to the agent. These checks do not establish that the hosted URL has the local changes.
 
 Use the commands and deployment settings in `../README.md`. No environment variables or private keys are needed. Keep the GitHub repository private and review staged files before pushing. Repository creation, pushing and deployment each require explicit approval. Once connected, Vercel's Git integration can automatically deploy later pushes.
 
-Do not execute Sepolia transactions, change the contract address, redeploy Solidity or implement Batch 2/3 as part of deployment preparation. Historical wallet balances are observations only; read current state from the contract.
+Do not execute Sepolia transactions, change the contract address, redeploy Solidity or implement Batch 3. Stage B/C require the user's backend setup before implementation continues. Historical wallet balances are observations only; read current state from the contract.
 
 `EXPORT_REPORT.md` records the original demo export and is historical, not a description of the current app.

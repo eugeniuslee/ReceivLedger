@@ -1,6 +1,6 @@
 # Export verification and limitations
 
-> Historical report from the original demo export. Statements below about unused blockchain integration, demo mode and seven tests describe that export only. The current app uses the deployed Sepolia contract; see `HANDOVER.md` and `../README.md` for the current architecture, 49-test verification and deployment instructions.
+> Historical report from the original demo export. Statements below about unused blockchain integration, demo mode and seven tests describe that export only. The current app uses the deployed Sepolia contract; see `HANDOVER.md` and `../README.md` for current architecture, verification and deployment instructions.
 
 This export preserves every file in the supplied `receivledger-frontend.zip`.
 Application source, styles, seed data, dependencies, lockfile, and Solidity contract

@@ -27,7 +27,9 @@ interface LedgerContextValue {
   transactionPending: boolean;
   error: string | null;
   eventsError: string | null;
+  connectionNotice: string | null;
   connect: () => Promise<void>;
+  disconnect: () => Promise<void>;
   refresh: (force?: boolean) => Promise<void>;
   refreshEvents: (force?: boolean) => Promise<void>;
   ledger: ChainLedger | null;
@@ -74,6 +76,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   const [walletChecking, setWalletChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [eventsError, setEventsError] = useState<string | null>(null);
+  const [connectionNotice, setConnectionNotice] = useState<string | null>(null);
   const [walletRevision, setWalletRevision] = useState(0);
   const walletVersion = useRef(0);
   const syncSequence = useRef(0);
@@ -86,6 +89,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   const eventCacheRef = useRef<{ key: string; entry: EventCacheEntry } | null>(null);
   const essentialFlightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
   const eventFlightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
+  const disconnectedByUser = useRef(false);
 
   const provider = useMemo(() => injected ? new BrowserProvider(injected) : null, [injected]);
   const ledger = useMemo(() => provider ? new ChainLedger(RECEIVLEDGER_ADDRESS, provider) : null, [provider]);
@@ -110,6 +114,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const synchronizeWallet = useCallback(async (requestPermission: boolean) => {
+    if (disconnectedByUser.current && !requestPermission) return;
     if (!injected || !provider) {
       setWalletChecking(Boolean(injected));
       return;
@@ -182,6 +187,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       setEventsError(null);
     };
     const onAccountsChanged = (value: unknown) => {
+      if (disconnectedByUser.current) return;
       const nextAccount = Array.isArray(value) && value[0] ? String(value[0]) : null;
       const accountChanged = didWalletAddressChange(accountRef.current, nextAccount);
       if (accountChanged) clearForWalletChange();
@@ -198,6 +204,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       if (!networkOkRef.current) void synchronizeWallet(false);
     };
     const onChainChanged = () => {
+      if (disconnectedByUser.current) return;
       clearForWalletChange();
       networkOkRef.current = false;
       setNetworkOk(false);
@@ -225,7 +232,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   }, [injected, synchronizeWallet]);
 
   const refreshEvents = useCallback((force = false): Promise<void> => {
-    const activeRole = role ?? roleRef.current;
+    const activeRole = roleRef.current;
     if (!provider || !ledger || !networkOk || !account || !activeRole) return Promise.resolve();
     const key = `${SEPOLIA_CHAIN_ID}:${RECEIVLEDGER_ADDRESS.toLowerCase()}:${account.toLowerCase()}:${activeRole}:${walletVersion.current}`;
     if (!force && eventFlightRef.current?.key === key) return eventFlightRef.current.promise;
@@ -270,7 +277,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       if (eventFlightRef.current?.promise === promise) eventFlightRef.current = null;
     });
     return promise;
-  }, [provider, ledger, networkOk, account, role, snapshot]);
+  }, [provider, ledger, networkOk, account, role]);
 
   const refresh = useCallback((force = false): Promise<void> => {
     if (!provider || !ledger || !networkOk || !account) return Promise.resolve();
@@ -327,8 +334,8 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   }, [networkOk, account, walletRevision, refresh]);
 
   useEffect(() => {
-    if (networkOk && account && role && snapshot) void refreshEvents();
-  }, [networkOk, account, role, snapshot, refreshEvents]);
+    if (networkOk && account && role) void refreshEvents();
+  }, [networkOk, account, role, refreshEvents]);
 
   useEffect(() => {
     if (networkOk && account && role === 'provisional' && eventIndexComplete && !eventsError) void refresh(true);
@@ -338,10 +345,14 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     const roleCheckLedger = ledger;
     if (!roleCheckLedger || !account || !networkOk) return;
     let checking = false;
+    let active = true;
+    const walletRequest = walletVersion.current;
+    const isCurrent = () => active && isCurrentWalletRequest(walletRequest, walletVersion.current, account, accountRef.current);
     const timer = window.setInterval(() => {
       if (checking || !roleRef.current) return;
       checking = true;
       void roleCheckLedger.classifyWallet(account, eventCacheRef.current?.entry.events ?? []).then(classification => {
+        if (!isCurrent()) return;
         if (walletRoleChanged(roleRef.current, classification.role)) {
           roleRef.current = null;
           historySequence.current += 1;
@@ -352,15 +363,51 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
           clearRoleData(setRole, setSnapshot, setEvents);
           void refresh(true);
         }
-      }).catch(cause => setError(errorMessage(cause))).finally(() => { checking = false; });
+      }).catch(cause => { if (isCurrent()) setError(errorMessage(cause)); }).finally(() => { checking = false; });
     }, 12_000);
-    return () => window.clearInterval(timer);
-  }, [ledger, account, networkOk, refresh]);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [ledger, account, networkOk, walletRevision, refresh]);
 
   const connect = useCallback(async () => {
+    disconnectedByUser.current = false;
+    setConnectionNotice(null);
     await synchronizeWallet(true);
     await refresh();
   }, [synchronizeWallet, refresh]);
+
+  const disconnect = useCallback(async () => {
+    if (transactionPending || !injected) return;
+    disconnectedByUser.current = true;
+    walletVersion.current += 1;
+    syncSequence.current += 1;
+    essentialSequence.current += 1;
+    historySequence.current += 1;
+    essentialFlightRef.current = null;
+    eventFlightRef.current = null;
+    eventCacheRef.current = null;
+    accountRef.current = null;
+    networkOkRef.current = false;
+    roleRef.current = null;
+    snapshotRef.current = null;
+    setAccount(null);
+    setNetworkOk(false);
+    clearRoleData(setRole, setSnapshot, setEvents);
+    setEventIndexComplete(false);
+    setLoading(false);
+    setEventsLoading(false);
+    setWalletChecking(true);
+    setError(null);
+    setEventsError(null);
+    const version = walletVersion.current;
+    try {
+      await injected.request({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] });
+      if (version === walletVersion.current) setConnectionNotice('Wallet disconnected. Reconnect when you are ready.');
+    } catch {
+      if (version === walletVersion.current) setConnectionNotice('Disconnected from this app. This wallet could not revoke site permissions automatically; remove this site in MetaMask to prevent reconnecting after a reload.');
+    } finally {
+      if (version === walletVersion.current) setWalletChecking(false);
+    }
+  }, [injected, transactionPending]);
   const runTransaction = useCallback(async <T,>(requiredRole: WalletRole, operation: (activeLedger: ChainLedger) => Promise<T>): Promise<T> => {
     if (!injected) throw new Error('MetaMask was not detected. Install or enable MetaMask to continue.');
     if (!networkOk) throw new Error('Switch MetaMask to Sepolia before sending a transaction.');
@@ -411,7 +458,9 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     transactionPending,
     error,
     eventsError,
+    connectionNotice,
     connect,
+    disconnect,
     refresh,
     refreshEvents,
     ledger,
