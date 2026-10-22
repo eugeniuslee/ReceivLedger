@@ -6,6 +6,7 @@ import { useFinance } from './FinanceContext';
 import { testInvoice, testNow, testSnapshot } from './fixtures';
 import { InvestorReporting, Reports, SmeFinancingAssessment } from '../pages/Reports';
 import { Invoices } from '../pages/Invoices';
+import { Dashboard } from '../pages/Dashboard';
 import { canAccessPage, navigationForRole } from '../chain/access';
 import type { ChainLedger, WalletRole } from '../chain/chainLedger';
 vi.mock('../chain/LedgerContext', () => ({ useLedger: vi.fn() }));
@@ -19,6 +20,23 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('reporting access and scenario isolation', () => {
+  it('does not infer revocation from a currently unapproved holding', () => {
+    wallet.role = 'inactiveInvestor';
+    wallet.snapshot = { role: 'inactiveInvestor', manager: '0xmanager', approved: false, connectedBalance: 250n };
+    render(<Dashboard />);
+    expect(screen.getByText('Not approved')).toBeTruthy();
+    expect(screen.queryByText('Revoked')).toBeNull();
+    expect(screen.getByText('25.00%')).toBeTruthy();
+  });
+  it('shows the reporting block and refresh failure even when the SME has no open requests', () => {
+    wallet.role = 'sme'; finance = { ...finance, error: 'RPC failed' };
+    render(<SmeFinancingAssessment />);
+    expect(screen.getByText(/No Submitted or Approved invoices/)).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('prior block snapshot remains visible');
+    expect(screen.getByText(/Sepolia block 123/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh report' }));
+    expect(finance.refresh).toHaveBeenCalledOnce();
+  });
   it.each<WalletRole | null>(['investor', 'inactiveInvestor', 'sme', 'provisional', null])('denies the manager report for %s', role => {
     wallet.role = role;
     expect(canAccessPage(role, 'reports')).toBe(false); expect(navigationForRole(role).some(item => item.id === 'reports')).toBe(false);

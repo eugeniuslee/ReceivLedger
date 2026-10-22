@@ -61,10 +61,10 @@ function SmeDashboard({ snapshot }: { snapshot: SmeSnapshot }) {
   const active = snapshot.invoices.filter(invoice => invoice.status === 'Submitted' || invoice.status === 'Approved' || invoice.status === 'Financed').length;
   return <>
     <section className="metric-grid">
-      <div className="metric emphasis"><span>Your submitted invoices</span><strong>{submitted}</strong><small>Matched to this wallet from InvoiceSubmitted events</small></div>
+      <div className="metric emphasis"><span>Your submitted invoices</span><strong>{submitted}</strong><small>Matched to this wallet from contract mappings</small></div>
       <div className="metric"><span>Invoices in progress</span><strong>{active}</strong><small>Submitted, approved or financed</small></div>
     </section>
-    <InvoiceSummary invoices={snapshot.invoices.slice().reverse().slice(0, 8)} title="Your invoice status" empty="No invoices submitted by this wallet were found in the history window." />
+    <InvoiceSummary invoices={snapshot.invoices.slice().reverse().slice(0, 8)} title="Your invoice status" empty="No invoices submitted by this wallet were found in contract mappings." />
     <p className="footnote">Invoice ownership is matched to the SME address stored in the contract; this does not verify a real-world identity.</p>
     <SmeFinancingAssessment />
   </>;
@@ -82,10 +82,10 @@ function InactiveInvestorDashboard({ snapshot }: { snapshot: InactiveInvestorSna
   return <>
     <section className="metric-grid investor-metrics">
       <div className="metric emphasis"><span>Remaining RLU holdings</span><strong>{formatInteger(snapshot.connectedBalance)} RLU</strong><small>On-chain balance · RLU has 0 decimals</small></div>
-      <div className="metric"><span>Investor approval</span><strong>Revoked</strong><small>Read from approvedInvestors(your wallet)</small></div>
+      <div className="metric"><span>Investor approval</span><strong>Not approved</strong><small>Read from approvedInvestors(your wallet)</small></div>
     </section>
-    <section className="section-block"><h3>Fund units remain in this wallet</h3>
-      <p className="support-copy">Revoking investor approval does not automatically redeem, transfer or burn RLU. The contract does not provide an investor redemption function.</p>
+    <section className="section-block"><h3>Investor account status</h3>
+      <p className="support-copy">This wallet is not currently approved. Revoking approval does not automatically redeem, transfer or burn RLU. Current approval alone does not establish whether approval was previously revoked. The contract does not provide an investor redemption function.</p>
     </section>
     <InvestorReporting />
   </>;

@@ -29,23 +29,26 @@ describe('registration forms and review recovery', () => {
   it('submits fictional SME details without accepting a client-supplied wallet owner', async () => {
     render(<Registration initialKind="sme" />);
     fireEvent.change(screen.getByLabelText('Registered company name'), { target: { value: 'Fictional SME' } });
-    fireEvent.change(screen.getByLabelText('Company registration number'), { target: { value: 'DEMO-123' } });
-    fireEvent.change(screen.getByLabelText('Contact email'), { target: { value: 'demo@example.test' } });
+    fireEvent.change(screen.getByLabelText('UEN / company registration number'), { target: { value: 'DEMO-123' } });
+    fireEvent.change(screen.getByLabelText('Business email'), { target: { value: 'demo@example.test' } });
+    fireEvent.change(screen.getByLabelText("Contact person's phone number"), { target: { value: 'DEMO-123' } });
+    fireEvent.change(screen.getByLabelText('Registered business address'), { target: { value: 'Fictional address' } });
+    fireEvent.change(screen.getByLabelText("Contact person's name"), { target: { value: 'Demo contact' } });
     expect((screen.getByLabelText('Authenticated wallet') as HTMLInputElement).readOnly).toBe(true);
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.submit(screen.getByRole('button', { name: 'Submit application' }).closest('form')!);
     await waitFor(() => expect(registry.request).toHaveBeenCalledWith({ action: 'submit', demo_consent: true,
-      application: { kind: 'sme', display_name: 'Fictional SME', company_number: 'DEMO-123', contact_email: 'demo@example.test', contact_phone: '' } }));
+      application: { kind: 'sme', display_name: 'Fictional SME', company_number: 'DEMO-123', contact_email: 'demo@example.test', contact_phone: 'DEMO-123', details: { country: '', website: '', business_address: 'Fictional address', contact_name: 'Demo contact' } } }));
     expect(await screen.findByText('Application submitted for manager review. No on-chain approval was granted.')).toBeTruthy();
   });
   it('shows rejection notes and permits resubmission while locking approved applications', () => {
     registry.application = { ...app, status: 'rejected', review_note: 'Please correct fictional details.' };
     const view = render(<Registration />);
-    expect(screen.getByText(/Please correct fictional details/)).toBeTruthy();
+    expect(screen.getAllByText(/Please correct fictional details/).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Resubmit for review' })).toBeTruthy();
     registry = { ...registry, application: { ...app, status: 'approved', approval_tx_hash: tx } };
     view.rerender(<Registration />);
-    expect((screen.getByLabelText('Display name') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Full name') as HTMLInputElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: 'Resubmit for review' })).toBeNull();
   });
   it('blocks application-review UI for a nonmanager', () => {

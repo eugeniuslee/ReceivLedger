@@ -2,6 +2,8 @@
 
 ## Local implementation
 
+Phase 5B extends this existing backend with fuller Investor/SME details, new-wallet onboarding, application dashboards, website action restrictions, additional-information requests and off-chain suspended/revoked states. Migration `202610220003_application_onboarding.sql` follows 001/002 and requires separate hosted approval. See [PHASE5B.md](PHASE5B.md) for the current flow, tests and two owner setup actions; the earlier Batch 2 verification below is historical.
+
 Stages A, B and C now have local code. Hosted activation and end-to-end testing are pending the project owner's Supabase configuration and approval. No hosted migration, Edge Function deployment, production push or Sepolia transaction has been performed by the agent.
 
 Stage A retains Home navigation, genuine-account-switch redirects, same-wallet page restoration, profile controls, smaller blockchain refresh controls, Settings, Help & Support, About and responsive styling.
@@ -22,7 +24,7 @@ Stages B/C add a welcome page, Investor/SME applications, persistent wallet-link
 | `supabase/functions/_shared/` | Request authorization, PDF parsing and independent Sepolia receipt/invoice checks |
 | `docs/SUPABASE_SETUP.md` | Exact setup requirements, approval boundaries and manual acceptance checks |
 
-This workspace originally had no Git metadata. A new local, uncommitted branch `feat/batch2-supabase` was initialized at the user's request. It has no production history, remote or commits. Reconcile these reviewed files with the actual GitHub checkout on a feature branch before any push; do not treat this independent local repository as a copy of the production Git history.
+The Phase 4 audit verified the actual Git checkout at `C:\Users\Eugen\Documents\GitHub\ReceivLedger` and created `feat/phase4-supabase-audit` from a clean `main`. The earlier independent-workspace note is historical and does not describe this checkout. See [PHASE4.md](PHASE4.md) for the current audit and activation boundary.
 
 ## Authentication and authorization
 

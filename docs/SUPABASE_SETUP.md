@@ -9,7 +9,7 @@ The frontend, migration and Edge Function are prepared locally. No hosted migrat
 | Frontend `.env.local` | `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` | Browser-safe project connection; no service/secret key is accepted |
 | Authentication / Sign In / Providers | Enable Web3 Wallet / Ethereum | Supabase Auth verifies the EIP-4361 message signature server-side |
 | Authentication / URL Configuration | Exact app origins and root redirect URLs below | Sign-in is bound to the originating application |
-| SQL Editor, after approval | Apply `supabase/migrations/202610220001_registration_documents.sql` once | Private profiles, applications, documents, audit records, explicit grants and RLS |
+| SQL Editor, after approval | Apply `202610220001_registration_documents.sql`, `202610220002_private_document_delete_guard.sql`, then `202610220003_application_onboarding.sql` from `supabase/migrations/`, each once | Private profiles, expanded registration details/statuses, audit, RLS and immutable private storage |
 | Data API | Enable the Data API and expose `public` if not already configured | The Edge Function's user-scoped RPCs use it; do not add blanket read/write policies |
 | Storage | Migration creates private `receiveledger-documents` bucket | No separate public bucket or client upload policy should be added |
 | Edge Functions / Secrets | `SEPOLIA_RPC_URL`, `ALLOWED_ORIGINS` | Read-only chain verification and exact browser-origin allowlist |
@@ -20,10 +20,10 @@ No database password, service-role key, signing private key or seed phrase belon
 
 The gateway's legacy JWT check is disabled for this function to accommodate new project signing keys. This does **not** make operations anonymous: the handler rejects missing/invalid user tokens with Supabase Auth `getUser`, then derives the wallet from protected identity/session tables through a user-scoped RPC. All operations require a valid, unrevoked Ethereum Web3 session. CORS is an additional restriction, not the authentication mechanism. This configuration is security-sensitive and should be reviewed together with the handler before deployment.
 
-## Next two actions only: local configuration
+## Next two actions only: project connection and Ethereum provider
 
-1. Copy the root `.env.example` to `.env.local` in the same folder as `package.json`. If `.env.local` already exists, edit it instead of overwriting it.
-2. Fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` from the project's Connect dialog, save, and tell the assistant that local configuration is ready. Keep the file ignored. Do not paste credentials into chat.
+1. Open the existing project in the Supabase dashboard, then click **Connect**. Copy its Project URL and Publishable key into the root `.env.local`, using `.env.example` as the template: `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. If the local file exists, edit rather than overwrite it. Expected result: an ignored local file containing the project's URL and `sb_publishable_...` key, with no secret/service-role key. Do not paste credentials into chat.
+2. Open **Authentication → Sign In / Providers → Web3 Wallet**, enable **Ethereum**, and save. Expected result: Ethereum wallet sign-in is enabled for that existing project. Stop and report these two actions complete; hosted registration still needs the remaining approved configuration below.
 
 The remaining pairs below are a reference for the subsequent guided steps. Do not run the migration or deploy the function until the project owner explicitly approves those actions.
 
@@ -36,8 +36,8 @@ The code uses `localhost`, not `127.0.0.1`, for HTTP wallet sign-in. Keep the pr
 
 ## Migration approval (a separate pair)
 
-1. Review the migration file and confirm the intended Supabase project. It is additive, uses the `rl_` prefix, and runs in one transaction. It intentionally fails if its tables or named bucket already exist, rather than overwriting existing resources.
-2. After explicit approval, apply that file once using the project's SQL Editor or an agreed Supabase migration workflow. Confirm the tables have RLS enabled and `receiveledger-documents` is private. Do not manually set a manager wallet: the Edge Function obtains `manager()` from the configured contract.
+1. Review all three migration files listed above and confirm the intended project and already-applied migration history. Each runs in a transaction. The first intentionally fails if its tables or named bucket already exist; the second blocks direct private-object deletion even with a legacy permissive DELETE policy. The third adds private registration details, submission dates, information requests and off-chain suspension/revocation. It preserves existing records and removes the old five-argument submission RPC to prevent bypassing the new required fields.
+2. After explicit approval, apply only outstanding migrations in order, once each, using the SQL Editor or an agreed migration workflow. Verify existing schemas rather than rerunning applied files. Confirm RLS, the private bucket and all three storage policies. Deploy the matching updated `registry` only after separate approval: the new submission signature requires migration 003. Do not manually set a manager wallet; the server reads it from the unchanged contract.
 
 Do not rerun the raw SQL against an already migrated database. If using the CLI later, reconcile its migration history with any SQL Editor application before `db push`; never assume an empty migration history means an empty database.
 
@@ -59,6 +59,12 @@ Investor application approval sends a real Sepolia transaction only after the ma
 SME approval and PDF verification are off-chain review records. Neither confers a Solidity SME role, changes investor approval, moves money or changes the deployed contract. Invoice uploads require the server to verify that the invoice's stored SME is the authenticated wallet, including for historical wallets without an application.
 
 ## Limits and operational notes
+
+Phase 5B onboarding and the complete local test report are in [PHASE5B.md](PHASE5B.md). A wallet-only browser restore flag contains no name, application status, private details or token; private records must be fetched again after signed-message authentication. It keeps enrolled wallets in this browser from silently taking the legacy path after sign-out. The flag is a convenience, not a security boundary, and may be absent in a new browser or when storage is blocked. Existing chain wallets without a known application retain their legacy functionality. Supabase RLS and manager authentication remain the private-data security boundary; website restrictions cannot prevent direct contract interaction.
+
+New statuses are `pending`, `needs_info`, `approved`, `rejected`, `suspended`, `revoked`. Suspension/revocation here changes only off-chain application status; it does not call `revokeInvestor` or revoke a Solidity SME role (none exists). Investor transfers always require live chain approval. Registered financial actions recheck the current application before requesting a transaction. An illustrative review target of up to three working days is not a service guarantee. No real identity document is required: use fictional verification PDFs only.
+
+The 20-document count check is best-effort and can be exceeded by concurrent uploads; it is not an atomic database quota. Phase 4 audit findings and current local validation are recorded in [PHASE4.md](PHASE4.md).
 
 Sessions and private profile data are kept in browser memory rather than local storage. Reloading preserves an allowed navigation page but requires signing in again for private records. Wallet or network changes clear private views and request local Supabase sign-out; RLS also checks that the server session still exists. Already-downloaded PDFs cannot be recalled. If network failure prevents server sign-out, the UI cannot guarantee immediate server revocation; the local view is still cleared.
 

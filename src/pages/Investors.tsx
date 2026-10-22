@@ -3,16 +3,19 @@ import { isAddress } from 'ethers';
 import { useLedger } from '../chain/LedgerContext';
 import { formatInteger } from '../chain/presentation';
 import { InvestorAdmin } from './InvestorAdmin';
+import { useRegistrationAccess } from '../registration/access';
 
 export function Investors({ investorTransferOnly = false }: { investorTransferOnly?: boolean }) {
   const { account, role, networkOk, transactionPending, ledger, runTransaction } = useLedger();
   const [transferTo, setTransferTo] = useState('');
   const [transferAmount, setTransferAmount] = useState('');
   const [formError, setFormError] = useState('');
+  const registration = useRegistrationAccess();
 
   async function transfer() {
     setFormError('');
     try {
+      await registration.authorize('transfer');
       if (!account || !isAddress(transferTo.trim())) throw new Error('Enter a valid receiver address and connect the sender wallet.');
       if (!/^[1-9]\d*$/.test(transferAmount)) throw new Error('Enter a positive whole number of RLU.');
       if (!ledger) throw new Error('Sepolia connection is unavailable.');
@@ -33,6 +36,7 @@ export function Investors({ investorTransferOnly = false }: { investorTransferOn
 
   if (!networkOk) return <div className="empty-state">Switch to Sepolia to query investor balances and approval status.</div>;
   if (investorTransferOnly) {
+    if (!registration.transferAllowed) return <section className="section-block"><h3>Transfer RLU</h3><p className="notice warning" role="status">{registration.reason}</p><button className="btn" disabled>Transfer unavailable</button><p className="footnote">Only the fund manager can issue RLU. Registration creates no on-chain investor permission.</p></section>;
     if (role !== 'investor') return <div className="notice error" role="alert">RLU transfer is available only to approved investors.</div>;
     return <TransferForm account={account} transferTo={transferTo} setTransferTo={setTransferTo} transferAmount={transferAmount} setTransferAmount={setTransferAmount} transactionPending={transactionPending} transfer={transfer} formError={formError} />;
   }

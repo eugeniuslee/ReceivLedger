@@ -32,6 +32,12 @@ afterEach(cleanup);
 function openProfileMenu() { fireEvent.click(screen.getByRole('button', { name: /^Account:/ })); }
 
 describe('Stage A wallet navigation and account controls', () => {
+  it('describes inactive investor approval without inventing a revocation event', () => {
+    wallet.role = 'inactiveInvestor';
+    render(<LedgerApp />);
+    expect(screen.getByText('Investor wallet is not currently approved.')).toBeTruthy();
+    expect(screen.queryByText('Investor approval revoked.')).toBeNull();
+  });
   it('closes manager financial reporting when switching to an investor and rejects saved report access', () => {
     const view = render(<LedgerApp />);
     fireEvent.click(screen.getByRole('button', { name: /Financial reports/ }));

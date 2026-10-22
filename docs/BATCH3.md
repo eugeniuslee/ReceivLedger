@@ -92,6 +92,8 @@ Actual partial advances, stored accepted fee terms, fee accrual/collection, rese
 
 ## Verification and manual check
 
+Phase 5A subsequently reviewed these formulas and their blockchain integration without Supabase, corrected reporting labels/error paths, and expanded verification to 201 tests. See [PHASE5A.md](PHASE5A.md) for findings, changed files, limitations and the ordered manual checklist. The original Batch 3 verification below records its earlier baseline.
+
 Final local checks passed: `npm.cmd run typecheck`, `npm.cmd run typecheck:edge`, `npm.cmd test` (177 tests across 14 files), and `npm.cmd run build` (which repeats TypeScript checking). This adds 57 tests to the 120-test Batch 2 baseline. The existing Node local-storage warning appears in jsdom test workers; browser storage is explicitly stubbed where used and all checks pass. Dependency upgrades were outside this batch; existing toolchain advisories documented in the Batch 2 setup notes remain unresolved.
 
 Automated checks cover calculations, edge cases, block pinning, failed reads, actual transaction arguments, SME read-only details, manager-only routing and delayed responses across wallet switches, alongside the existing Batch 1/2 suite. Tests use mocks or disposable local PostgreSQL, without hosted Supabase or Sepolia transactions. Browser/mobile layout and real MetaMask acceptance still need manual verification.

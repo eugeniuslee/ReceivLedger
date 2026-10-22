@@ -65,7 +65,7 @@ export function maturityState(invoice: ChainInvoice, now: bigint) {
   return { overdue, daysRemaining: durationDays(now, invoice.maturity), overdueDays: positivePart(-remaining) / DAY,
     label: invoice.status === 'Repaid' ? 'Repaid on-chain' : overdue ? `${-remaining < DAY ? '<1' : String(-remaining / DAY)} day(s) overdue`
       : invoice.status === 'Rejected' ? 'Rejected on-chain' : remaining > 0n ? `${durationDays(now, invoice.maturity)} day(s) remaining`
-      : invoice.status === 'Financed' && remaining === 0n ? 'Due now' : 'Maturity passed · not repaid' };
+      : invoice.status === 'Financed' && remaining === 0n ? 'Due now' : 'Maturity reached · not financed' };
 }
 
 /** Proposal only. Fees are withheld from the reserve at settlement, not the

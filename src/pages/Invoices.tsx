@@ -8,10 +8,12 @@ import { maturityState } from '../finance/models';
 import { financialDate } from '../finance/presentation';
 import { InvoiceAssessment } from '../components/FinancialModels';
 import { InvoiceTimeline } from '../components/InvoiceTimeline';
+import { useRegistrationAccess } from '../registration/access';
 
 export function Invoices() {
   const { account, role, networkOk, snapshot, loading, transactionPending, ledger, runTransaction } = useLedger();
   const { now } = useFinance();
+  const registration = useRegistrationAccess();
   const [payer, setPayer] = useState('');
   const [amount, setAmount] = useState('');
   const [maturity, setMaturity] = useState('');
@@ -49,6 +51,7 @@ export function Invoices() {
     event.preventDefault();
     setFormError('');
     try {
+      await registration.authorize('invoice');
       if (!payer.trim()) throw new Error('Enter the payer name.');
       if (!/^[1-9]\d*$/.test(amount)) throw new Error('Enter a positive whole-number S$ amount.');
       if (!maturity) throw new Error('Choose a maturity date.');
@@ -82,12 +85,13 @@ export function Invoices() {
   return <>
     {(role === 'sme' || role === 'provisional') && account && <section className="section-block form-section">
       <div className="section-heading"><div><span className="eyebrow">Open contract function</span><h2>Submit an invoice</h2></div></div>
-      <p className="support-copy">Any non-manager wallet may call submitInvoice(). The submitting address is stored on the invoice; this does not register or verify a real-world SME identity.</p>
+      <p className="support-copy">New applicants require manager SME verification to submit through this website. Solidity permits direct submitInvoice calls from arbitrary wallets; this website restriction is not enforced by the contract. Existing invoice wallets without applications retain their blockchain access.</p>
+      {!registration.invoiceAllowed && <p className="notice warning" role="status">{registration.reason}</p>}
       <form className="form-row" onSubmit={submitInvoice}>
         <label>Payer name<input value={payer} onChange={event => setPayer(event.target.value)} maxLength={100} required placeholder="Company or payer" /></label>
         <label>Amount (S$)<input type="number" min="1" step="1" inputMode="numeric" value={amount} onChange={event => setAmount(event.target.value)} required /></label>
         <label>Maturity date<input type="date" value={maturity} onChange={event => setMaturity(event.target.value)} required /></label>
-        <button className="btn" disabled={transactionPending}>Submit invoice</button>
+        <button className="btn" disabled={transactionPending || !registration.invoiceAllowed}>Submit invoice</button>
       </form>
       {formError && <p className="inline-error" role="alert">{formError}</p>}
     </section>}

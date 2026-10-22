@@ -1,7 +1,7 @@
 ﻿import { RequestError } from './domain.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { RegistryChain } from './chain.ts';
-import { assertManager, assertReviewable, invoiceId, MAX_PDF_BYTES, PRIVATE_BUCKET, registrationInput, requireUuid, type Application, type PrivateDocument } from './domain.ts';
+import { assertManager, assertApplicationReview, invoiceId, MAX_PDF_BYTES, PRIVATE_BUCKET, registrationInput, requireUuid, type Application, type PrivateDocument } from './domain.ts';
 import { validatePdf } from './pdf.ts';
 
 interface Dependencies { admin: SupabaseClient; userClient: (token: string) => SupabaseClient; chain: RegistryChain; origins: string[] }
@@ -62,7 +62,7 @@ export function createRegistryHandler({ admin, userClient, chain, origins }: Dep
         const registration = registrationInput(input.application);
         if (input.demo_consent !== true) throw new RequestError('Use fictional demonstration details only.');
         return json(checked(await user.rpc('rl_submit_application', { p_kind: registration.kind, p_name: registration.display_name,
-          p_company: registration.company_number, p_email: registration.contact_email, p_phone: registration.contact_phone })));
+          p_company: registration.company_number, p_email: registration.contact_email, p_phone: registration.contact_phone, p_details: registration.details })));
       }
       if (action === 'applications') {
         assertManager(wallet, manager);
@@ -85,7 +85,7 @@ export function createRegistryHandler({ admin, userClient, chain, origins }: Dep
         if (purpose === 'kyc') {
           application_id = requireUuid(form.get('application_id'));
           const app = checked(await user.from('rl_applications').select('*').eq('id', application_id).eq('user_id', ownerId).single()) as Application;
-          if (app.status !== 'pending') throw new RequestError('KYC can only be attached to your pending application.');
+          if (!['pending', 'needs_info'].includes(app.status)) throw new RequestError('KYC can only be attached to your pending application or information request.');
         } else if (purpose === 'invoice') {
           invoice_id = invoiceId(form.get('invoice_id'));
           if ((await chain.invoiceOwner(invoice_id)).toLowerCase() !== wallet.toLowerCase()) throw new RequestError('This invoice belongs to another wallet.');
@@ -113,8 +113,7 @@ export function createRegistryHandler({ admin, userClient, chain, origins }: Dep
       if (action === 'review_application') {
         assertManager(wallet, manager);
         const app = checked(await admin.from('rl_applications').select('*').eq('id', requireUuid(input.id)).single()) as Application;
-        assertReviewable(app.status, app.version, input.version);
-        if (!['approved', 'rejected'].includes(input.decision)) throw new RequestError('Invalid decision.');
+        assertApplicationReview(app.status, app.version, input.version, input.decision);
         if (input.decision === 'approved') {
           const kyc = checked(await admin.from('rl_documents').select('id').eq('application_id', app.id).eq('status', 'verified').limit(1));
           if (!kyc?.length) throw new RequestError('Verify fictional KYC before approving the application.');

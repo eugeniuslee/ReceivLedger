@@ -10,7 +10,7 @@ import { About, Help, MyProfile, Settings } from './pages/Account';
 import { ProfileMenu } from './components/ProfileMenu';
 import { BlockchainRefresh } from './components/BlockchainRefresh';
 import { RegistryProvider, useRegistry } from './registration/RegistryContext';
-import { Registration, RegistrationSummary, Welcome } from './pages/Registration';
+import { ApplicationDashboard, PrivateAccess, Registration, RegistrationSummary, Welcome } from './pages/Registration';
 import { Applications } from './pages/Applications';
 import { Documents } from './pages/Documents';
 import { FinanceProvider } from './finance/FinanceContext';
@@ -29,19 +29,21 @@ export function LedgerApp() {
   const [rememberPage, setRememberPage] = useState(initialRememberPage);
   const [registrationKind, setRegistrationKind] = useState<'investor' | 'sme'>('investor');
   const { account, role, networkOk, walletAvailable, walletChecking, eventIndexComplete, connect, loading, transactionPending, error, eventsError, connectionNotice } = useLedger();
-  const { registeredName, application } = useRegistry();
-  const navigation = navigationForRole(role);
-  const resolved = resolveWalletNavigation(navigationState, account, role);
+  const { registeredName, application, requiresRegistrationSession } = useRegistry();
+  // An application selects an interface, never a chain permission or role.
+  const viewRole = role === 'provisional' && application ? application.kind === 'investor' ? 'investor' : 'sme' : role;
+  const navigation = navigationForRole(viewRole);
+  const resolved = resolveWalletNavigation(navigationState, account, viewRole);
   const page = resolved.page;
-  const pageAllowed = canAccessPage(role, page);
+  const pageAllowed = canAccessPage(viewRole, page);
   const activeTitle = [...navigation, ...SUPPORT_PAGES, { id: 'profile', title: 'My Profile' }].find(item => item.id === page)?.title ?? 'Home';
 
   useEffect(() => {
     setNavigationState(previous => {
-      const next = resolveWalletNavigation(previous, account, role);
+      const next = resolveWalletNavigation(previous, account, viewRole);
       return previous.account === next.account && previous.page === next.page ? previous : next;
     });
-  }, [account, role]);
+  }, [account, viewRole]);
 
   useEffect(() => {
     if (!account || !role) return;
@@ -66,10 +68,12 @@ export function LedgerApp() {
     if (page === 'settings') content = <Settings rememberPage={rememberPage} onRememberPage={updateRememberPage} />;
     else if (page === 'help') content = <Help />;
     else if (page === 'about') content = <About />;
-    else if (page === 'registration') content = <Registration initialKind={registrationKind} />;
+    else if (page === 'registration') content = <Registration initialKind={registrationKind} onSubmitted={() => navigate('dashboard')} />;
     else if (role) {
       if (page === 'profile') content = <MyProfile />;
-      else if (page === 'dashboard') content = <><RegistrationSummary onNavigate={navigate} /><Dashboard /></>;
+      else if (page === 'dashboard') content = role === 'provisional'
+        ? application ? <ApplicationDashboard onNavigate={navigate} /> : requiresRegistrationSession ? <PrivateAccess><ApplicationDashboard onNavigate={navigate} /></PrivateAccess> : <Welcome onApply={kind => { setRegistrationKind(kind); navigate('registration'); }} />
+        : <><RegistrationSummary onNavigate={navigate} /><Dashboard /></>;
       else if (page === 'applications') content = <Applications />;
       else if (page === 'documents') content = <Documents />;
       else if (page === 'reports') content = <Reports />;
@@ -93,7 +97,7 @@ export function LedgerApp() {
     </aside>
     <main className="main">
       <header className="top">
-        <div><span className="section-kicker">Your fund workspace</span><h1>{activeTitle}</h1><span className="sub">{account ? role ? `${registeredName ? `${registeredName} · ` : ''}${application?.kind === 'sme' && application.status === 'approved' && role === 'provisional' ? 'Verified SME (off-chain)' : identity.name}` : 'Resolving wallet access…' : 'Connect your wallet to get started'}</span></div>
+        <div><span className="section-kicker">Your fund workspace</span><h1>{activeTitle}</h1><span className="sub">{account ? role ? `${registeredName ? `${registeredName} · ` : ''}${application && role === 'provisional' ? `${application.kind === 'sme' ? 'SME' : 'Investor'} application · ${application.status}` : identity.name}` : 'Resolving wallet access…' : 'Connect your wallet to get started'}</span></div>
         <div className="wallet-controls">
           <span className={`network-pill ${networkOk ? 'connected' : 'disconnected'}`}>{walletChecking ? 'Checking wallet…' : !walletAvailable ? 'Wallet unavailable' : !account ? 'Not connected' : networkOk ? 'Sepolia' : 'Wrong network'}</span>
           {account ? <ProfileMenu key={account.toLowerCase()} onNavigate={navigate} /> : <button className="btn" onClick={() => void connect()} disabled={!walletAvailable || walletChecking || transactionPending}>{walletChecking ? 'Checking wallet…' : 'Connect MetaMask'}</button>}
@@ -102,7 +106,7 @@ export function LedgerApp() {
       <p className="prototype-disclosure">University prototype on Sepolia. RLU has no real monetary value; SGD accounting is simulated, with no real payments or redemption. Blockchain records are public.</p>
       {!walletAvailable && <div className="notice info">Enable MetaMask in your browser to connect. Help & Support is available without a wallet.</div>}
       {account && walletAvailable && !networkOk && <div className="notice warning">Select Sepolia in MetaMask (chain ID 11155111) to load your blockchain records.</div>}
-      {role === 'inactiveInvestor' && <div className="notice warning"><b>Investor approval revoked.</b> Your RLU remains in this wallet; transfers are unavailable.</div>}
+      {role === 'inactiveInvestor' && <div className="notice warning"><b>Investor wallet is not currently approved.</b> Any RLU holdings remain in this wallet; transfers are unavailable.</div>}
       {role === 'provisional' && !eventIndexComplete && !eventsError && <div className="notice pending" role="status">Historical role evidence is still indexing. This wallet may be reclassified when the scan completes.</div>}
       {connectionNotice && <div className="notice info" role="status">{connectionNotice}</div>}
       {error && <div className="notice error" role="alert">{error}</div>}

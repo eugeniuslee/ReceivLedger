@@ -34,6 +34,19 @@ function request(body: unknown, token = 'session', origin = 'https://receiveledg
   return new Request('https://edge.test/registry', { method: 'POST', headers: { origin, ...(token ? { Authorization: `Bearer ${token}` } : {}), 'content-type': 'application/json' }, body: JSON.stringify(body) });
 }
 describe('Edge Function authentication and authorization boundary', () => {
+  it('records an additional-information request without blockchain approval verification', async () => {
+    const response = await handler()(request({ action: 'review_application', id: appId, version: 1, decision: 'needs_info', note: 'Add fictional details' }));
+    expect(response.status).toBe(200);
+    expect(review).toHaveBeenCalledWith('rl_review_application', expect.objectContaining({ p_decision: 'needs_info', p_tx: null }));
+    expect(chain.verifyApproval).not.toHaveBeenCalled();
+  });
+  it('denies nonmanager information requests and document decisions', async () => {
+    actor = alice; verifiedWallet = alice;
+    for (const action of ['review_application', 'review_document']) {
+      expect((await handler()(request({ action, id: appId, version: 1, decision: 'needs_info', note: 'spoof' }))).status).toBe(400);
+    }
+    expect(review).not.toHaveBeenCalled();
+  });
   it('rejects missing/invalid tokens and unapproved origins before private access', async () => {
     expect((await handler()(request({ action: 'applications' }, ''))).status).toBe(401);
     expect(getUser).not.toHaveBeenCalled();
