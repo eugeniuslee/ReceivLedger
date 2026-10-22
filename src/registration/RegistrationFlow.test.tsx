@@ -124,3 +124,30 @@ describe('registration forms and review recovery', () => {
     expect(ledger.runTransaction).toHaveBeenCalledOnce(); expect(finalizations).toBe(2);
   });
 });
+
+
+describe('contextual private document views', () => {
+  it('restricts an invoice detail to its linked documents and fixes the upload invoice ID', async () => {
+    vi.mocked(registry.request).mockResolvedValue([
+      { id: 'own', invoice_id: '7', filename: 'selected-invoice.pdf', purpose: 'invoice', status: 'verified', byte_size: 100, sha256: 'a'.repeat(64) },
+      { id: 'other', invoice_id: '8', filename: 'other-invoice.pdf', purpose: 'invoice', status: 'verified', byte_size: 100, sha256: 'b'.repeat(64) },
+    ]);
+    render(<DocumentsPanel invoiceId="7" />);
+    expect(await screen.findByText('selected-invoice.pdf')).toBeTruthy();
+    expect(screen.queryByText('other-invoice.pdf')).toBeNull();
+    expect(screen.queryByLabelText('Document purpose')).toBeNull();
+    const invoice = screen.getByLabelText('On-chain invoice ID') as HTMLInputElement;
+    expect(invoice.value).toBe('7'); expect(invoice.readOnly).toBe(true);
+    expect(registry.request).toHaveBeenCalledWith({ action: 'documents', invoice_id: '7' });
+  });
+  it('does not offer uploads on another application or a locked approved application', async () => {
+    registry.application = { ...app, status: 'approved' };
+    const view = render(<DocumentsPanel applicationId={id} allowUpload />);
+    await screen.findByText('No documents were returned for this view.');
+    expect(screen.queryByRole('button', { name: 'Upload privately' })).toBeNull();
+    registry.application = { ...app, status: 'pending' };
+    view.rerender(<DocumentsPanel applicationId="10000000-0000-0000-0000-000000000002" allowUpload />);
+    await screen.findByText('No documents were returned for this view.');
+    expect(screen.queryByRole('button', { name: 'Upload privately' })).toBeNull();
+  });
+});

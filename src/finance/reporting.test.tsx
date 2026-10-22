@@ -28,7 +28,7 @@ describe('reporting access and scenario isolation', () => {
     const metric = screen.getByText('Outstanding financed principal').closest('.metric')!;
     expect(within(metric as HTMLElement).getByText('S$120')).toBeTruthy();
     expect(within(screen.getByText('Repaid invoices').closest('.metric') as HTMLElement).getByText('1')).toBeTruthy();
-    expect(screen.getAllByText(/overdue/i)).toHaveLength(1);
+    expect(screen.getAllByText('1 day(s) overdue')).toHaveLength(1);
     expect(screen.getByText('Maturity (SGT)')).toBeTruthy();
     expect(screen.getByText('Invoice face value')).toBeTruthy();
     expect(wallet.runTransaction).not.toHaveBeenCalled();

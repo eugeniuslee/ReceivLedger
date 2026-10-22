@@ -4,7 +4,7 @@ import { useLedger } from '../chain/LedgerContext';
 import { useRegistry } from '../registration/RegistryContext';
 import { assertApplicationReview, type ApplicationDecision, type Application, type PrivateDocument } from '../../supabase/functions/_shared/domain';
 import { PrivateAccess } from './Registration';
-import { ApplicationDetails } from '../components/ApplicationDetails';
+import { ApplicationDetails, applicationDate } from '../components/ApplicationDetails';
 import { DocumentsPanel } from './Documents';
 
 export function Applications() {
@@ -15,6 +15,7 @@ export function Applications() {
 function ApplicationList() {
   const { isManager, request, reload } = useRegistry();
   const [rows, setRows] = useState<Application[]>([]); const [filter, setFilter] = useState('pending');
+  const statusFilters = [{ value: 'pending', title: 'Pending' }, { value: 'approved', title: 'Approved' }, { value: 'rejected', title: 'Rejected' }, { value: 'needs_info', title: 'Requires more information' }];
   const [selected, setSelected] = useState<string | null>(null); const [error, setError] = useState('');
   const [loading, setLoading] = useState(true); const [loaded, setLoaded] = useState(false);
   const requestRef = useRef(request); requestRef.current = request;
@@ -34,10 +35,11 @@ function ApplicationList() {
   const app = rows.find(row => row.id === selected);
   return <><section className="section-block"><div className="section-heading"><h2>Registration applications</h2><div className="history-controls"><label>Status<select value={filter} onChange={event => setFilter(event.target.value)}><option value="pending">Pending</option><option value="needs_info">Additional information requested</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="suspended">Suspended</option><option value="revoked">Revoked (off-chain)</option><option value="all">All</option></select></label><button className="btn o small" disabled={loading} onClick={() => void refreshApplications()}>{loading ? 'Loading applications…' : 'Refresh applications'}</button></div></div>
     <p className="support-copy">Latest 200 applications. Verify fictional KYC before approval. Investor access is approved through the existing Sepolia contract; SME verification remains off-chain.</p>
+    <div className="application-tabs" role="group" aria-label="Application status filters">{statusFilters.map(item => <button className={`btn ${filter === item.value ? '' : 'o'}`} aria-pressed={filter === item.value} key={item.value} onClick={() => setFilter(item.value)}>{item.title} ({rows.filter(row => row.status === item.value).length})</button>)}</div>
     {error && <p className="inline-error" role="alert">{error}</p>}
     {loading ? <p role="status">Loading private applications…</p> : loaded && !error && <p className="support-copy" role="status">Applications refreshed. {rows.filter(row => filter === 'all' || row.status === filter).length} match the selected status.</p>}
     {!loading && loaded && !error && !rows.some(row => filter === 'all' || row.status === filter) && <p className="empty-state compact">No applications match this status.</p>}
-    <div className="table-scroll"><table><thead><tr><th>Name / company</th><th>Wallet</th><th>Application</th><th>Status</th><th>Review</th></tr></thead><tbody>{rows.filter(row => filter === 'all' || row.status === filter).map(row => <tr key={row.id}><td>{row.display_name}</td><td className="mono">{row.wallet}</td><td>{row.kind === 'sme' ? 'SME' : 'Investor'}</td><td>{row.status}</td><td><button className="btn o small" onClick={() => setSelected(row.id)}>Review details</button></td></tr>)}</tbody></table></div>
+    <div className="table-scroll"><table><thead><tr><th>Name / company</th><th>Wallet</th><th>Application</th><th>Submitted (SGT)</th><th>Status</th><th>Review</th></tr></thead><tbody>{rows.filter(row => filter === 'all' || row.status === filter).map(row => <tr key={row.id}><td>{row.display_name}</td><td className="mono">{row.wallet}</td><td>{row.kind === 'sme' ? 'SME' : 'Investor'}</td><td>{applicationDate(row.submitted_at ?? row.created_at)}</td><td>{row.status}</td><td><button className="btn o small" onClick={() => setSelected(row.id)}>Review details</button></td></tr>)}</tbody></table></div>
   </section>{app && <ApplicationReview key={`${app.id}:${app.version}`} application={app} onChanged={async () => { await load(); await reload(); }} />}</>;
 }
 function ApplicationReview({ application: app, onChanged }: { application: Application; onChanged: () => Promise<void> }) {

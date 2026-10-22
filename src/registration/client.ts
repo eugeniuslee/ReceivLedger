@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { userFacingError } from '../errors';
 
 export function readSupabaseConfiguration(url = '', key = '') {
   // Vite substitutes these strings during the build, including Vercel Preview
@@ -26,9 +27,12 @@ export async function registryRequest<T>(client: SupabaseClient, token: string, 
   const { data, error } = await client.functions.invoke('registry', { body: input, headers: { Authorization: `Bearer ${token}` } });
   if (error) {
     let message = 'Registration service is unavailable. Check the Supabase setup and try again.';
+    if (error.name === 'FunctionsFetchError') message = 'Registration service could not be reached from this website. Check the exact origin in ALLOWED_ORIGINS, function availability and your connection.';
+    if (error.name === 'FunctionsRelayError') message = 'The registration gateway could not reach the function. Ask the project owner to check its deployment and logs.';
     try { const response = error.context as Response; const payload = await response.json(); if (typeof payload.error === 'string') message = payload.error; } catch { /* preserve safe fallback */ }
-    throw new Error(message);
+    if (message === 'Origin is not allowed.') message = 'This website origin is not authorised for registration. Ask the project owner to review ALLOWED_ORIGINS.';
+    throw new Error(userFacingError(message, 'Registration request failed. Ask the project owner to check the service configuration.'));
   }
-  if (data && typeof data === 'object' && 'error' in data) throw new Error(String(data.error));
+  if (data && typeof data === 'object' && 'error' in data) throw new Error(userFacingError(String(data.error)));
   return data as T;
 }

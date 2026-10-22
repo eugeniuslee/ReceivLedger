@@ -36,7 +36,7 @@ describe('Stage A wallet navigation and account controls', () => {
     render(<LedgerApp />);
     const main = screen.getByRole('navigation', { name: 'Main navigation' });
     expect(within(main).getAllByRole('button').map(button => button.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual([
-      'Home', 'Applications', 'Investors', 'Invoice management', 'Financial reports', 'Documents', 'Transaction history',
+      'Home', 'Financial Reports', 'Applications', 'Investors', 'Invoices', 'Transaction History',
     ]);
     const footer = screen.getByRole('navigation', { name: 'Support navigation' }).parentElement!;
     expect(footer.className).toBe('side-footer');
@@ -53,12 +53,12 @@ describe('Stage A wallet navigation and account controls', () => {
   });
   it('closes manager financial reporting when switching to an investor and rejects saved report access', () => {
     const view = render(<LedgerApp />);
-    fireEvent.click(screen.getByRole('button', { name: /Financial reports/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Financial Reports/ }));
     expect(screen.getByRole('heading', { name: 'Fund financial reporting' })).toBeTruthy();
     wallet = { ...wallet, account: walletB, role: 'investor' };
     view.rerender(<LedgerApp />);
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Home');
-    expect(screen.queryByRole('button', { name: /Financial reports/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Financial Reports/ })).toBeNull();
     view.unmount();
     window.sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify({ account: walletB, page: 'reports' }));
     render(<LedgerApp />);
@@ -74,7 +74,7 @@ describe('Stage A wallet navigation and account controls', () => {
 
   it('returns Home when switching to a different wallet with the same role', () => {
     const view = render(<LedgerApp />);
-    fireEvent.click(screen.getByRole('button', { name: /Transaction history/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Transaction History/ }));
     expect(screen.getByText('Wallet history content')).toBeTruthy();
     wallet = { ...wallet, account: walletB };
     view.rerender(<LedgerApp />);
@@ -84,7 +84,7 @@ describe('Stage A wallet navigation and account controls', () => {
 
   it('preserves the current page during same-wallet refresh and tab reload', () => {
     const view = render(<LedgerApp />);
-    fireEvent.click(screen.getByRole('button', { name: /Transaction history/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Transaction History/ }));
     wallet = { ...wallet, account: walletA.toUpperCase().replace('0X', '0x'), loading: true };
     view.rerender(<LedgerApp />);
     expect(screen.getByText('Wallet history content')).toBeTruthy();
@@ -102,14 +102,14 @@ describe('Stage A wallet navigation and account controls', () => {
     expect(screen.queryByRole('button', { name: /^Investors$/ })).toBeNull();
   });
 
-  it('removes transfer access when approval changes without switching wallets', () => {
+  it('preserves assets but removes transfer access when approval changes without switching wallets', () => {
     wallet.role = 'investor';
     const view = render(<LedgerApp />);
-    fireEvent.click(screen.getByRole('button', { name: /Transfer RLU/ }));
+    fireEvent.click(screen.getByRole('button', { name: /My Assets/ }));
     wallet = { ...wallet, role: 'inactiveInvestor' };
     view.rerender(<LedgerApp />);
-    expect(screen.queryByText('Investor controls')).toBeNull();
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Home');
+    expect(screen.queryByRole('button', { name: 'Transfer' })).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('My Assets');
   });
 
   it('refreshes both role-specific records and event history', async () => {

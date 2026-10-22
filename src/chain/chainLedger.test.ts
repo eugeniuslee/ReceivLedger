@@ -160,8 +160,8 @@ describe('role-scoped event filtering', () => {
 });
 
 describe('role page access', () => {
-  it('gives the manager all four management pages', () => {
-    expect(ROLE_PAGES.manager.map(page => page.id)).toEqual(['dashboard', 'invoices', 'investors', 'history']);
+  it('gives the manager the six requested management pages', () => {
+    expect(ROLE_PAGES.manager.map(page => page.id)).toEqual(['dashboard', 'reports', 'applications', 'investors', 'invoices', 'history']);
   });
 
   it('keeps investor routes personal and hides invoice/global administration', () => {
@@ -179,13 +179,14 @@ describe('role page access', () => {
     expect(canAccessPage('sme', 'transfer')).toBe(false);
     expect(canAccessPage('sme', 'investors')).toBe(false);
     expect(canAccessPage('provisional', 'dashboard')).toBe(true);
-    expect(canAccessPage('provisional', 'invoices')).toBe(true);
+    expect(canAccessPage('provisional', 'invoices')).toBe(false);
+    expect(canAccessPage('provisional', 'submitInvoice')).toBe(true);
     expect(canAccessPage('provisional', 'history')).toBe(false);
     expect(canAccessPage(null, 'dashboard')).toBe(false);
   });
 
   it('gives inactive investors personal history but no transfer or invoice route', () => {
-    expect(ROLE_PAGES.inactiveInvestor.map(page => page.id)).toEqual(['dashboard', 'history']);
+    expect(ROLE_PAGES.inactiveInvestor.map(page => page.id)).toEqual(['dashboard', 'assets', 'history']);
     expect(canAccessPage('inactiveInvestor', 'history')).toBe(true);
     expect(canAccessPage('inactiveInvestor', 'transfer')).toBe(false);
     expect(canAccessPage('inactiveInvestor', 'invoices')).toBe(false);
@@ -195,7 +196,7 @@ describe('role page access', () => {
   it('does not redirect a mapping-verified SME when the fast approval-only poll says provisional', () => {
     expect(walletRoleChanged('sme', 'provisional')).toBe(false);
     expect(walletRoleChanged('provisional', 'inactiveInvestor')).toBe(true);
-    expect(ROLE_PAGES.provisional.map(page => page.id)).toEqual(['dashboard', 'invoices']);
+    expect(ROLE_PAGES.provisional.map(page => page.id)).toEqual(['dashboard']);
   });
 });
 

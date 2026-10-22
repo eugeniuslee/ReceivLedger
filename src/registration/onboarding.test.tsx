@@ -27,7 +27,7 @@ beforeEach(() => {
     loading: false, eventIndexComplete: true, events: [], eventsLoading: false, eventsError: null, error: null,
     transactionPending: false, connectionNotice: null, ledger: null, runTransaction: vi.fn(), refresh: vi.fn(), refreshEvents: vi.fn(), disconnect: vi.fn() } as unknown as ReturnType<typeof useLedger>;
   registry = { configured: true, authenticated: true, busy: false, error: null, application: null, registeredName: null,
-    isManager: false, signIn: vi.fn(), signOut: vi.fn(), reload: vi.fn(), request: vi.fn(), displayName: () => null };
+    isManager: false, signIn: vi.fn(), signOut: vi.fn(), reload: vi.fn(), request: vi.fn().mockResolvedValue([]), displayName: () => null };
   vi.mocked(useLedger).mockImplementation(() => wallet); vi.mocked(useRegistry).mockImplementation(() => registry);
 });
 afterEach(cleanup);
@@ -36,7 +36,7 @@ describe('new-wallet onboarding and secure registration forms', () => {
   it('offers a public connection entry point and official installation help without requesting a signature', () => {
     wallet.account = null; wallet.role = null; wallet.walletAvailable = false; wallet.connect = vi.fn();
     render(<LedgerApp />);
-    expect((screen.getByRole('button', { name: 'Connect wallet to get started' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Connect Your Wallet' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole('link', { name: 'official MetaMask website' }).getAttribute('href')).toBe('https://metamask.io/download/');
     expect(wallet.connect).not.toHaveBeenCalled(); expect(registry.signIn).not.toHaveBeenCalled();
   });
@@ -65,8 +65,8 @@ describe('new-wallet onboarding and secure registration forms', () => {
   });
   it('welcomes an unknown connected wallet with both registration paths', () => {
     render(<LedgerApp />);
-    expect(screen.getByRole('button', { name: 'Apply as an Investor' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Register as an SME' }));
+    expect(screen.getByRole('button', { name: 'Investor' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'SME' }));
     expect(screen.getByLabelText('Registered company name')).toBeTruthy();
     expect(screen.queryByText('Wallet role not established')).toBeNull();
   });
@@ -113,7 +113,7 @@ describe('new-wallet onboarding and secure registration forms', () => {
     expect(screen.getByRole('heading', { name: 'Investor application dashboard' })).toBeTruthy();
     expect(screen.getByText(/up to 3 working days/)).toBeTruthy();
     const navigation = within(screen.getByRole('navigation', { name: 'Main navigation' }));
-    fireEvent.click(navigation.getByRole('button', { name: /Transfer RLU/ }));
+    fireEvent.click(navigation.getByRole('button', { name: /My Assets/ }));
     expect(screen.getByText(/Manager verification is pending/)).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Transfer unavailable' }) as HTMLButtonElement).disabled).toBe(true);
     expect(wallet.role).toBe('provisional'); expect(wallet.runTransaction).not.toHaveBeenCalled();
@@ -179,6 +179,53 @@ describe('website transaction restrictions and existing-wallet compatibility', (
     fireEvent.change(screen.getByLabelText('Review note', { selector: 'textarea' }), { target: { value: 'Please add fictional details.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Request additional information' }));
     await waitFor(() => expect(registry.request).toHaveBeenCalledWith(expect.objectContaining({ action: 'review_application', decision: 'needs_info' })));
+    expect(wallet.runTransaction).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('restructured onboarding and navigation regressions', () => {
+  it('keeps the disconnected welcome minimal, with the exact requested copy', () => {
+    wallet.account = null; wallet.role = null; wallet.connect = vi.fn();
+    render(<LedgerApp />);
+    expect(screen.getByRole('heading', { name: 'Register your ReceivLedger Account' })).toBeTruthy();
+    expect(screen.getByText('Connect your wallet to get started.')).toBeTruthy();
+    expect(screen.queryByRole('navigation', { name: 'Main navigation' })).toBeNull();
+    expect(screen.queryByLabelText('Full name')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Your Wallet' }));
+    expect(wallet.connect).toHaveBeenCalledOnce(); expect(registry.signIn).not.toHaveBeenCalled();
+  });
+  it('waits for chain recognition and offers explicit restoration without an automatic signature', () => {
+    wallet.eventIndexComplete = false; registry.authenticated = false;
+    const view = render(<LedgerApp />);
+    expect(screen.queryByRole('button', { name: 'Investor' })).toBeNull();
+    expect(registry.signIn).not.toHaveBeenCalled();
+    wallet.eventIndexComplete = true; view.rerender(<LedgerApp />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in to restore account' }));
+    expect(registry.signIn).toHaveBeenCalledOnce();
+    registry.authenticated = true; registry.application = { ...application, status: 'rejected' }; view.rerender(<LedgerApp />);
+    expect(screen.getByText('Application: Rejected')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'SME' })).toBeNull();
+    expect(registry.signIn).toHaveBeenCalledOnce();
+  });
+  it('does not carry an account-type selection into another wallet', () => {
+    const view = render(<LedgerApp />);
+    fireEvent.click(screen.getByRole('button', { name: 'SME' }));
+    expect(screen.getByLabelText('Registered company name')).toBeTruthy();
+    wallet.account = '0x3333333333333333333333333333333333333333'; view.rerender(<LedgerApp />);
+    expect(screen.queryByLabelText('Registered company name')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'What type of account would you like to register?' })).toBeTruthy();
+    expect(registry.signIn).not.toHaveBeenCalled();
+  });
+  it('separates the SME invoice list from submission and keeps the exact primary menu', () => {
+    wallet.role = 'sme';
+    render(<LedgerApp />);
+    const nav = within(screen.getByRole('navigation', { name: 'Main navigation' }));
+    expect(nav.getAllByRole('button').map(button => button.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual(['Home', 'My Invoices', 'Submit Invoice', 'Transaction History']);
+    fireEvent.click(nav.getByRole('button', { name: /My Invoices/ }));
+    expect(screen.queryByRole('button', { name: 'Submit invoice' })).toBeNull();
+    fireEvent.click(nav.getByRole('button', { name: /Submit Invoice/ }));
+    expect(screen.getByRole('button', { name: 'Submit invoice' })).toBeTruthy();
     expect(wallet.runTransaction).not.toHaveBeenCalled();
   });
 });

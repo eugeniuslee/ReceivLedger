@@ -10,11 +10,12 @@ import { About, Help, MyProfile, Settings } from './pages/Account';
 import { ProfileMenu } from './components/ProfileMenu';
 import { BlockchainRefresh } from './components/BlockchainRefresh';
 import { RegistryProvider, useRegistry } from './registration/RegistryContext';
-import { ApplicationDashboard, PrivateAccess, Registration, RegistrationSummary, Welcome } from './pages/Registration';
+import { AccountChoice, ApplicationDashboard, PrivateAccess, Registration, RegistrationSummary, Welcome } from './pages/Registration';
 import { Applications } from './pages/Applications';
 import { Documents } from './pages/Documents';
 import { FinanceProvider } from './finance/FinanceContext';
 import { Reports } from './pages/Reports';
+import { Assets } from './pages/Assets';
 
 function initialRememberPage() {
   try { return window.localStorage.getItem(REMEMBER_PAGE_KEY) !== 'false'; } catch { return true; }
@@ -27,16 +28,22 @@ function initialNavigation(): NavigationState {
 export function LedgerApp() {
   const [navigationState, setNavigationState] = useState(initialNavigation);
   const [rememberPage, setRememberPage] = useState(initialRememberPage);
-  const [registrationKind, setRegistrationKind] = useState<'investor' | 'sme'>('investor');
+  const [selection, setSelection] = useState<{ wallet: string; kind: 'investor' | 'sme' } | null>(null);
+  const [submittedWallet, setSubmittedWallet] = useState<string | null>(null);
   const { account, role, networkOk, walletAvailable, walletChecking, eventIndexComplete, connect, loading, transactionPending, error, eventsError, connectionNotice } = useLedger();
-  const { registeredName, application, requiresRegistrationSession } = useRegistry();
+  const { registeredName, application, requiresRegistrationSession, authenticated } = useRegistry();
+  const registrationKind = selection?.wallet === account?.toLowerCase() ? selection?.kind : undefined;
   // An application selects an interface, never a chain permission or role.
   const viewRole = role === 'provisional' && application ? application.kind === 'investor' ? 'investor' : 'sme' : role;
   const navigation = navigationForRole(viewRole);
   const resolved = resolveWalletNavigation(navigationState, account, viewRole);
   const page = resolved.page;
   const pageAllowed = canAccessPage(viewRole, page);
-  const activeTitle = [...navigation, ...SUPPORT_PAGES, { id: 'profile', title: 'My Profile' }].find(item => item.id === page)?.title ?? 'Home';
+  const activeTitle = [...navigation, ...SUPPORT_PAGES, { id: 'profile', title: 'My Profile' }, { id: 'registration', title: 'Your Application' }, { id: 'documents', title: 'Private Documents' }].find(item => item.id === page)?.title ?? 'Home';
+
+  useEffect(() => {
+    setSubmittedWallet(null);
+  }, [account]);
 
   useEffect(() => {
     setNavigationState(previous => {
@@ -63,27 +70,38 @@ export function LedgerApp() {
     } catch { return false; }
   }
 
-  let content = loading || walletChecking ? <div className="empty-state">Checking the connected wallet role…</div> : <Welcome onApply={kind => { setRegistrationKind(kind); navigate('registration'); }} />;
+  function chooseAccount(kind: 'investor' | 'sme') { if (account) setSelection({ wallet: account.toLowerCase(), kind }); navigate('registration'); }
+  const choice = <AccountChoice onChoose={chooseAccount} />;
+  const existingApplication = application ? <ApplicationDashboard onNavigate={navigate} /> : requiresRegistrationSession && !authenticated ? <PrivateAccess>{choice}</PrivateAccess> : choice;
+
+  if (!account) return <main className="public-entry"><div className="public-brand">ReceivLedger</div>
+    {navigationState.account === null && page === 'help' ? <Help /> : navigationState.account === null && page === 'about' ? <About /> : <Welcome />}
+    {error && <p className="notice error" role="alert">{error}</p>}{connectionNotice && <p className="notice info" role="status">{connectionNotice}</p>}
+    <footer className="public-footer"><button className="text-button" onClick={() => navigate('dashboard')}>Welcome</button><button className="text-button" onClick={() => navigate('help')}>Help & Support</button><button className="text-button" onClick={() => navigate('about')}>About ReceivLedger</button></footer>
+  </main>;
+
+  let content = <div className="empty-state">{loading || walletChecking ? 'Checking the connected wallet role…' : 'Wallet records are unavailable. Check the connection and refresh.'}</div>;
   if (pageAllowed) {
     if (page === 'settings') content = <Settings rememberPage={rememberPage} onRememberPage={updateRememberPage} />;
     else if (page === 'help') content = <Help />;
     else if (page === 'about') content = <About />;
-    else if (page === 'registration') content = <Registration initialKind={registrationKind} onSubmitted={() => navigate('dashboard')} />;
+    else if (page === 'registration') content = registrationKind || application ? <Registration initialKind={application?.kind ?? registrationKind} onSubmitted={() => { setSubmittedWallet(account.toLowerCase()); navigate('dashboard'); }} /> : choice;
     else if (role) {
-      if (page === 'profile') content = <MyProfile />;
-      else if (page === 'dashboard') content = role === 'provisional'
-        ? application ? <ApplicationDashboard onNavigate={navigate} /> : requiresRegistrationSession ? <PrivateAccess><ApplicationDashboard onNavigate={navigate} /></PrivateAccess> : <Welcome onApply={kind => { setRegistrationKind(kind); navigate('registration'); }} />
+      if (page === 'profile') content = <MyProfile onApplication={() => navigate('registration')} />;
+      else if (page === 'dashboard') content = (role !== 'manager' && application && application.status !== 'approved') || role === 'provisional'
+        ? existingApplication
         : <><RegistrationSummary onNavigate={navigate} /><Dashboard /></>;
       else if (page === 'applications') content = <Applications />;
       else if (page === 'documents') content = <Documents />;
       else if (page === 'reports') content = <Reports />;
-      else if (page === 'invoices') content = <Invoices />;
+      else if (page === 'invoices') content = <Invoices mode="list" />;
+      else if (page === 'submitInvoice') content = <Invoices mode="submit" />;
+      else if (page === 'assets' || page === 'transfer') content = <Assets />;
       else if (page === 'investors') content = <Investors />;
-      else if (page === 'transfer') content = <Investors investorTransferOnly />;
       else if (page === 'history') content = <History />;
     }
   }
-  const blockchainPage = ['dashboard', 'invoices', 'investors', 'transfer', 'history', 'profile', 'reports'].includes(page);
+  const blockchainPage = ['dashboard', 'assets', 'submitInvoice', 'invoices', 'investors', 'transfer', 'history', 'profile', 'reports'].includes(page);
   const identity = walletIdentity(role);
 
   return <div className="app">
@@ -105,6 +123,7 @@ export function LedgerApp() {
         </div>
       </header>
       <p className="prototype-disclosure">University prototype on Sepolia. RLU has no real monetary value; SGD accounting is simulated, with no real payments or redemption. Blockchain records are public.</p>
+      {submittedWallet === account.toLowerCase() && <p className="notice info" role="status">Application submitted for review. No on-chain approval was granted.<button className="text-button" onClick={() => setSubmittedWallet(null)}>Dismiss</button></p>}
       {!walletAvailable && <div className="notice info">Enable MetaMask in your browser to connect. Help & Support is available without a wallet.</div>}
       {account && walletAvailable && !networkOk && <div className="notice warning">Select Sepolia in MetaMask (chain ID 11155111) to load your blockchain records.</div>}
       {role === 'inactiveInvestor' && <div className="notice warning"><b>Investor wallet is not currently approved.</b> Any RLU holdings remain in this wallet; transfers are unavailable.</div>}

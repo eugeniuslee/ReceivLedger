@@ -2,7 +2,7 @@ import { useLedger } from '../chain/LedgerContext';
 import type { ChainInvoice, FundSnapshot, InactiveInvestorSnapshot, InvestorSnapshot, ProvisionalSnapshot, SmeSnapshot } from '../chain/chainLedger';
 import { formatInteger, formatMoney } from '../chain/presentation';
 import { WalletName } from '../components/WalletName';
-import { InvestorReporting, SmeFinancingAssessment } from './Reports';
+import { InvestorReporting, SmeCapacity, SmeFinancingAssessment } from './Reports';
 import { maturityState } from '../finance/models';
 import { useFinance } from '../finance/FinanceContext';
 import { financialDate } from '../finance/presentation';
@@ -60,19 +60,25 @@ function InvestorDashboard({ snapshot }: { snapshot: InvestorSnapshot }) {
 }
 
 function SmeDashboard({ snapshot }: { snapshot: SmeSnapshot }) {
+  const { now } = useFinance();
   const submitted = snapshot.invoices.length;
   const active = snapshot.invoices.filter(invoice => invoice.status === 'Submitted' || invoice.status === 'Approved' || invoice.status === 'Financed').length;
   const outstanding = snapshot.invoices.filter(invoice => invoice.status === 'Financed').reduce((sum, invoice) => sum + invoice.amount, 0n);
   const repaid = snapshot.invoices.filter(invoice => invoice.status === 'Repaid').length;
+  const totalFinanced = snapshot.invoices.filter(invoice => invoice.status === 'Financed' || invoice.status === 'Repaid').reduce((sum, invoice) => sum + invoice.amount, 0n);
+  const upcoming = snapshot.invoices.filter(invoice => invoice.status === 'Financed' && invoice.maturity > now).sort((a, b) => a.maturity < b.maturity ? -1 : a.maturity > b.maturity ? 1 : 0).slice(0, 5);
   return <>
     <section className="metric-grid">
       <div className="metric emphasis"><span>Your submitted invoices</span><strong>{submitted}</strong><small>Matched to this wallet from contract mappings</small></div>
       <div className="metric"><span>Invoices in progress</span><strong>{active}</strong><small>Submitted, approved or financed</small></div>
       <div className="metric"><span>Outstanding financed principal</span><strong>{formatMoney(outstanding)}</strong><small>Financed face value only · simulated accounting</small></div>
       <div className="metric"><span>Repaid invoices</span><strong>{repaid}</strong><small>Closed records · excluded from outstanding</small></div>
+      <div className="metric"><span>Total financed face value</span><strong>{formatMoney(totalFinanced)}</strong><small>Financed and Repaid principal turnover · not income</small></div>
     </section>
     <InvoiceSummary invoices={snapshot.invoices.slice().reverse().slice(0, 8)} title="Your invoice status" empty="No invoices submitted by this wallet were found in contract mappings." />
     <p className="footnote">Invoice ownership is matched to the SME address stored in the contract; this does not verify a real-world identity.</p>
+    <section className="section-block"><h2>Upcoming financed maturities</h2>{upcoming.length ? <ul>{upcoming.map(invoice => <li key={invoice.id.toString()}>Invoice #{invoice.id.toString()} · {financialDate(invoice.maturity)} SGT · {formatMoney(invoice.amount)}</li>)}</ul> : <p>No future maturities among this wallet's currently Financed invoices. Overdue records remain in My Invoices.</p>}</section>
+    <SmeCapacity />
     <SmeFinancingAssessment />
   </>;
 }

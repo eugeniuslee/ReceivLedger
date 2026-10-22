@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assessInvoice, DAY, DEFAULT_ASSUMPTIONS as defaults, durationDays, financingQuote, invoiceHistory, maturityState, money, moneyInput, navScenario, payerKey, percentInput, perUnit, portfolio, prospectiveIncome, roundRatio } from './models';
+import { borrowingCapacity, assessInvoice, DAY, DEFAULT_ASSUMPTIONS as defaults, durationDays, financingQuote, invoiceHistory, maturityState, money, moneyInput, navScenario, payerKey, percentInput, perUnit, portfolio, prospectiveIncome, roundRatio } from './models';
 import { testInvoice as invoice, testNow as now, testSnapshot as snapshot } from './fixtures';
 import type { ChainEvent } from '../chain/chainLedger';
 
@@ -167,5 +167,23 @@ describe('NAV and income scenarios', () => {
     expect(navScenario(data, zero).navCents).toBe(101000n);
     expect(data.availableFunds).toBe(900n); expect(data.totalSupply).toBe(1000n);
     expect(prospectiveIncome(snapshot({ invoices: [invoice({ status: 'Repaid' })] }), now, 1200)).toBe(0n);
+  });
+});
+
+
+describe('SME Home capacity uses the invoice assessment policy', () => {
+  it('matches assessment headroom without a fabricated invoice or payer assumption', () => {
+    const data = snapshot({ invoices: [invoice({ status: 'Financed', amount: 60n }), invoice({ id: 2n, status: 'Repaid', amount: 99n }), invoice({ id: 3n, status: 'Financed', sme: '0xother', amount: 10n })] });
+    const capacity = borrowingCapacity(invoice().sme.toUpperCase(), data);
+    const assessment = assessInvoice(invoice(), data, now, defaults, 'unassessed');
+    expect(capacity.smeOutstandingCents).toBe(6000n);
+    expect(capacity.remainingBorrowingCents).toBe(4000n);
+    expect(capacity.remainingBorrowingCents).toBe(assessment.remainingBorrowingCents);
+    expect(capacity.liquidAfterReserveCents).toBe(assessment.liquidAfterReserveCents);
+    expect(capacity.indicativeCapacityCents).toBe(4000n);
+  });
+  it('clamps unavailable liquidity and explicit zero sales without inventing capacity', () => {
+    expect(borrowingCapacity(invoice().sme, snapshot({ availableFunds: 0n })).indicativeCapacityCents).toBe(0n);
+    expect(borrowingCapacity(invoice().sme, snapshot(), { ...defaults, annualSalesCents: 0n }).indicativeCapacityCents).toBe(0n);
   });
 });

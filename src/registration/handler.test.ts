@@ -91,3 +91,13 @@ describe('Edge Function authentication and authorization boundary', () => {
     expect(await response.text()).not.toContain('SECRET');
   });
 });
+
+
+describe('staff cannot acquire backend privileges through frontend claims', () => {
+  it.each(['applications', 'review_application', 'review_document'])('rejects forged staff permissions for %s', async action => {
+    actor = alice; verifiedWallet = alice;
+    const response = await handler()(request({ action, id: appId, version: 1, decision: 'needs_info', note: 'spoof', role: 'manager', isManager: true, staff: true, permissions: ['review_applications', 'read_documents'], actor: manager }));
+    expect(response.status).toBe(400);
+    expect(review).not.toHaveBeenCalled(); expect(download).not.toHaveBeenCalled(); expect(upload).not.toHaveBeenCalled();
+  });
+});

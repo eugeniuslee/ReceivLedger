@@ -104,20 +104,28 @@ export function portfolio(snapshot: FinancialSnapshot, now: bigint) {
     reconciliationCents: snapshot.totalFundSize * 100n - snapshot.availableFunds * 100n - outstandingCents };
 }
 
-export function assessInvoice(invoice: ChainInvoice, snapshot: FinancialSnapshot, now: bigint, a: Assumptions, risk: RiskTier) {
+/** The existing SME policy calculation, shared by Home and invoice assessments. */
+export function borrowingCapacity(wallet: string, snapshot: FinancialSnapshot, a = DEFAULT_ASSUMPTIONS, risk: RiskTier = 'unassessed') {
   validateAssumptions(a);
   const policy = RISK_POLICY[risk]; if (!policy) throw new Error('Choose a known demonstration risk tier.');
-  const active = snapshot.invoices.filter(row => row.status === 'Financed');
-  const smeLoans = active.filter(row => row.sme.toLowerCase() === invoice.sme.toLowerCase());
+  const smeLoans = snapshot.invoices.filter(row => row.status === 'Financed' && row.sme.toLowerCase() === wallet.toLowerCase());
   const smeOutstandingCents = smeLoans.reduce((sum, row) => sum + row.amount * 100n, 0n);
-  const payerLoans = active.filter(row => payerKey(row.payer) === payerKey(invoice.payer));
-  const payerExposureCents = payerLoans.reduce((sum, row) => sum + row.amount * 100n, 0n);
   const fundPolicyCapCents = snapshot.totalFundSize * 100n * BigInt(a.smeCapBps) / BPS;
   const salesPolicyCapCents = a.annualSalesCents === null ? null : a.annualSalesCents * BigInt(a.salesCapBps) / BPS;
   const borrowingLimitCents = (salesPolicyCapCents === null ? fundPolicyCapCents : min(fundPolicyCapCents, salesPolicyCapCents)) * BigInt(policy.factorBps) / BPS;
   const remainingBorrowingCents = positivePart(borrowingLimitCents - smeOutstandingCents);
   const reserveTargetCents = snapshot.totalFundSize * 100n * BigInt(a.liquidityReserveBps) / BPS;
   const liquidAfterReserveCents = positivePart(snapshot.availableFunds * 100n - reserveTargetCents);
+  return { policy, smeLoans, smeOutstandingCents, fundPolicyCapCents, salesPolicyCapCents, borrowingLimitCents,
+    remainingBorrowingCents, reserveTargetCents, liquidAfterReserveCents,
+    indicativeCapacityCents: min(remainingBorrowingCents, liquidAfterReserveCents) };
+}
+
+export function assessInvoice(invoice: ChainInvoice, snapshot: FinancialSnapshot, now: bigint, a: Assumptions, risk: RiskTier) {
+  const { policy, smeLoans, smeOutstandingCents, fundPolicyCapCents, salesPolicyCapCents, borrowingLimitCents, remainingBorrowingCents, reserveTargetCents, liquidAfterReserveCents } = borrowingCapacity(invoice.sme, snapshot, a, risk);
+  const active = snapshot.invoices.filter(row => row.status === 'Financed');
+  const payerLoans = active.filter(row => payerKey(row.payer) === payerKey(invoice.payer));
+  const payerExposureCents = payerLoans.reduce((sum, row) => sum + row.amount * 100n, 0n);
   const remainingPayerCents = positivePart(snapshot.maxPayerExposure * 100n - payerExposureCents);
   const maximumProposedAdvanceCents = min(remainingBorrowingCents, liquidAfterReserveCents, remainingPayerCents);
   const contractReasons: string[] = [];

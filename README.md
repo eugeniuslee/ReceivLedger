@@ -2,7 +2,9 @@
 
 React 18, TypeScript, Vite 5 and ethers v6 frontend for the deployed ReceivLedger contract. All dashboard and workflow data is read from Sepolia; this app does not use a fictional in-browser ledger.
 
-## Current local work: website integration and QA
+## Current local work: registration and navigation restructuring
+
+The latest local changes are on `feat/registration-ux-restructure`, based on freshly fetched GitHub main. See [Registration restructuring](docs/REGISTRATION_RESTRUCTURE.md) for the new flow, files, production CORS diagnosis, staff design and manual checks. Changes remain uncommitted and unpublished.
 
 The existing Supabase backend for `gltivccwuryzlgpqvyll` has been activated with explicit approval: three migrations, five protected tables, private PDF storage, `registry` and its approved origin/RPC settings. Hosted negative/preflight HTTP checks passed, but successful wallet registration, manager review and document isolation have not been verified end to end. The testing Preview's MetaMask warning remains unresolved; do not bypass it or sign there. See [Website QA](docs/WEBSITE_QA.md) for the current local improvements, role flows, test scope and manual checklist. No frontend deployment is part of this local review.
 

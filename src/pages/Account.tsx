@@ -4,6 +4,10 @@ import { RECEIVLEDGER_ADDRESS, SEPOLIA_CHAIN_ID, SEPOLIA_EXPLORER } from '../cha
 import { walletIdentity } from '../chain/navigation';
 import { formatInteger } from '../chain/presentation';
 import { useRegistry } from '../registration/RegistryContext';
+import { PrivateAccess } from '../components/PrivateAccess';
+import { DocumentsPanel } from './Documents';
+import { ApplicationDetails } from '../components/ApplicationDetails';
+import { ApplicationStatus } from './Registration';
 
 function ContractDetails() {
   return <dl className="detail-list">
@@ -13,9 +17,9 @@ function ContractDetails() {
   </dl>;
 }
 
-export function MyProfile() {
+export function MyProfile({ onApplication }: { onApplication?: () => void }) {
   const { account, role, snapshot } = useLedger();
-  const { registeredName, application, authenticated, configured, signIn, signOut, busy, error } = useRegistry();
+  const { registeredName, application, authenticated, configured, signOut, busy, error } = useRegistry();
   const identity = walletIdentity(role);
   if (!account || !role) return <div className="empty-state">Connect your wallet on Sepolia to view its profile.</div>;
   return <section className="section-block account-page">
@@ -29,8 +33,10 @@ export function MyProfile() {
       {application && <div><dt>Application</dt><dd>{application.kind} · {application.status}{application.kind === 'sme' ? ' (off-chain)' : ''}</dd></div>}
       {snapshot && 'connectedBalance' in snapshot && <div><dt>RLU holdings</dt><dd>{formatInteger(snapshot.connectedBalance)} RLU</dd></div>}
     </dl>
-    {configured && <button className="btn o" disabled={busy} onClick={() => void (authenticated ? signOut() : signIn())}>{authenticated ? 'Sign out of private profile' : 'Sign in for private profile'}</button>}
+    {configured && authenticated && <button className="btn o" disabled={busy} onClick={() => void signOut()}>Sign out of private profile</button>}
     {error && <p className="inline-error" role="alert">{error}</p>}
+    {onApplication && role !== 'manager' && <button className="btn o" onClick={onApplication}>{application ? 'Review your application' : 'Register or restore account'}</button>}
+    <PrivateAccess>{application && <details className="help-item"><summary>Application details</summary><ApplicationStatus application={application} /><ApplicationDetails application={application} /></details>}<DocumentsPanel /></PrivateAccess>
     <p className="footnote">Connecting a wallet does not verify a person's identity or a company. Registration and document decisions are private off-chain records; contract permissions remain separate.</p>
   </section>;
 }

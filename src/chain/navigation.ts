@@ -4,7 +4,7 @@ import type { WalletRole } from './chainLedger';
 export interface NavigationState { account: string | null; page: PageId }
 export const NAVIGATION_KEY = 'receivledger:navigation:v1';
 export const REMEMBER_PAGE_KEY = 'receivledger:remember-page';
-const pages = new Set<string>(['profile', 'registration', 'applications', 'documents', 'reports', ...SUPPORT_PAGES.map(item => item.id), ...Object.values(ROLE_PAGES).flat().map(item => item.id)]);
+const pages = new Set<string>(['profile', 'registration', 'applications', 'documents', 'reports', 'transfer', ...SUPPORT_PAGES.map(item => item.id), ...Object.values(ROLE_PAGES).flat().map(item => item.id)]);
 
 export function readNavigation(storage: Pick<Storage, 'getItem'>): NavigationState {
   try {

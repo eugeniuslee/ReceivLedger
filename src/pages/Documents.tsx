@@ -2,15 +2,15 @@ import { userFacingError } from '../errors';
 import { useEffect, useRef, useState } from 'react';
 import { useRegistry } from '../registration/RegistryContext';
 import { MAX_PDF_BYTES, type PrivateDocument } from '../../supabase/functions/_shared/domain';
-import { PrivateAccess } from './Registration';
+import { PrivateAccess } from '../components/PrivateAccess';
 
 export function Documents() { return <PrivateAccess><DocumentsPanel /></PrivateAccess>; }
 
-export function DocumentsPanel({ applicationId }: { applicationId?: string }) {
+export function DocumentsPanel({ applicationId, invoiceId, allowUpload = false }: { applicationId?: string; invoiceId?: string; allowUpload?: boolean }) {
   const { application, isManager, request } = useRegistry();
   const [documents, setDocuments] = useState<PrivateDocument[]>([]);
-  const [purpose, setPurpose] = useState<'kyc' | 'invoice'>(application && ['pending', 'needs_info'].includes(application.status) ? 'kyc' : 'invoice');
-  const [invoice, setInvoice] = useState(''); const [file, setFile] = useState<File | null>(null);
+  const [purpose, setPurpose] = useState<'kyc' | 'invoice'>(applicationId ? 'kyc' : invoiceId ? 'invoice' : application && ['pending', 'needs_info'].includes(application.status) ? 'kyc' : 'invoice');
+  const [invoice, setInvoice] = useState(invoiceId ?? ''); const [file, setFile] = useState<File | null>(null);
   const [consent, setConsent] = useState(false); const [busy, setBusy] = useState(false);
   const [error, setError] = useState(''); const [message, setMessage] = useState('');
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -21,11 +21,12 @@ export function DocumentsPanel({ applicationId }: { applicationId?: string }) {
     const version = ++loadVersion.current;
     setLoading(true); setError('');
     try {
-      const rows = await requestRef.current<PrivateDocument[]>({ action: 'documents', ...(applicationId ? { application_id: applicationId } : {}) });
+      const rows = await requestRef.current<PrivateDocument[]>({ action: 'documents', ...(applicationId ? { application_id: applicationId } : {}), ...(invoiceId ? { invoice_id: invoiceId } : {}) });
+      if (!Array.isArray(rows)) throw new Error('Private document records were unavailable. Refresh before relying on this list.');
       if (mounted.current && version === loadVersion.current) { setDocuments(rows); setLoaded(true); }
     } finally { if (mounted.current && version === loadVersion.current) setLoading(false); }
   }
-  useEffect(() => { mounted.current = true; setDocuments([]); setLoaded(false); void load().catch(cause => { if (mounted.current) setError(userFacingError(cause)); }); return () => { mounted.current = false; loadVersion.current++; }; }, [applicationId]);
+  useEffect(() => { let active = true; mounted.current = true; setDocuments([]); setLoaded(false); setInvoice(invoiceId ?? ''); if (applicationId) setPurpose('kyc'); else if (invoiceId) setPurpose('invoice'); void load().catch(cause => { if (active && mounted.current) setError(userFacingError(cause)); }); return () => { active = false; mounted.current = false; loadVersion.current++; }; }, [applicationId, invoiceId]);
   async function perform(operation: () => Promise<void>) {
     setBusy(true); setError(''); setMessage('');
     try { await operation(); } catch (cause) { if (mounted.current) setError(userFacingError(cause)); }
@@ -58,12 +59,13 @@ export function DocumentsPanel({ applicationId }: { applicationId?: string }) {
       await load(); if (mounted.current) setMessage('Document review decision recorded off-chain.');
     });
   }
-  const visibleDocuments = applicationId ? documents.filter(doc => doc.application_id === applicationId) : documents;
-  return <section className="section-block"><div className="section-heading"><h2>{applicationId ? 'Application KYC documents' : 'Private documents'}</h2><button className="btn o small" disabled={busy || loading} onClick={() => void perform(async () => { await load(); if (mounted.current) setMessage('Documents refreshed.'); })}>{loading ? 'Loading documents…' : 'Refresh documents'}</button></div>
+  const visibleDocuments = applicationId ? documents.filter(doc => doc.application_id === applicationId) : invoiceId ? documents.filter(doc => doc.invoice_id === invoiceId) : documents;
+  const canUpload = !isManager && (applicationId ? allowUpload && application?.id === applicationId && ['pending', 'needs_info'].includes(application.status) : true);
+  return <section className="section-block"><div className="section-heading"><h2>{applicationId ? 'Supporting application documents' : invoiceId ? `Private documents for invoice #${invoiceId}` : 'Private documents'}</h2><button className="btn o small" disabled={busy || loading} onClick={() => void perform(async () => { await load(); if (mounted.current) setMessage('Documents refreshed.'); })}>{loading ? 'Loading documents…' : 'Refresh documents'}</button></div>
     <p className="support-copy">Fictional PDFs only, up to 5 MB and 100 pages. Files are private to the submitting wallet and fund manager. Document verification is an off-chain review decision, not proof of real identity or on-chain permission.</p>
-    {!isManager && !applicationId && <form className="registration-form document-upload" onSubmit={event => void upload(event)}>
-      <label>Document purpose<select value={purpose} onChange={event => setPurpose(event.target.value as 'kyc' | 'invoice')}><option value="kyc" disabled={!application || !['pending', 'needs_info'].includes(application.status)}>Application KYC</option><option value="invoice">Invoice PDF</option></select></label>
-      {purpose === 'kyc' ? <p className="support-copy">Attached to your pending application. Submit or resubmit an application before uploading KYC.</p> : <label>On-chain invoice ID<input value={invoice} required inputMode="numeric" pattern="[1-9][0-9]*" onChange={event => setInvoice(event.target.value)} placeholder="For example, 1" /></label>}
+    {canUpload && <form className="registration-form document-upload" onSubmit={event => void upload(event)}>
+      {!applicationId && !invoiceId && <label>Document purpose<select value={purpose} onChange={event => setPurpose(event.target.value as 'kyc' | 'invoice')}><option value="kyc" disabled={!application || !['pending', 'needs_info'].includes(application.status)}>Application KYC</option><option value="invoice">Invoice PDF</option></select></label>}
+      {purpose === 'kyc' ? <p className="support-copy">Attached to your pending application. Submit or resubmit an application before uploading KYC.</p> : <label>On-chain invoice ID<input value={invoice} readOnly={Boolean(invoiceId)} required inputMode="numeric" pattern="[1-9][0-9]*" onChange={event => setInvoice(event.target.value)} placeholder="For example, 1" /></label>}
       <label>Fictional PDF<input type="file" required accept="application/pdf,.pdf" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
       <label className="consent-row"><input type="checkbox" required checked={consent} onChange={event => setConsent(event.target.checked)} />This PDF contains fictional demonstration information, not a real identity or confidential document.</label>
       <button className="btn" disabled={busy || !consent || (purpose === 'kyc' && !['pending', 'needs_info'].includes(application?.status ?? ''))}>{busy ? 'Working…' : 'Upload privately'}</button>

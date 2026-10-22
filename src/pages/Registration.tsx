@@ -6,7 +6,9 @@ import type { PageId } from '../chain/access';
 import { ApplicationDetails } from '../components/ApplicationDetails';
 import { registrationAccess } from '../registration/access';
 import { userFacingError } from '../errors';
-import { SmeFinancingAssessment } from './Reports';
+import { SmeCapacity, SmeFinancingAssessment } from './Reports';
+import { PrivateAccess } from '../components/PrivateAccess';
+import { DocumentsPanel } from './Documents';
 
 const statusLabels = { pending: 'Pending Review', needs_info: 'Additional information requested', approved: 'Approved', rejected: 'Rejected', suspended: 'Suspended', revoked: 'Revoked (off-chain)' };
 
@@ -25,39 +27,41 @@ export function ApplicationDashboard({ onNavigate }: { onNavigate: (page: PageId
   const access = registrationAccess(role, application, authenticated);
   return <section className="section-block"><h2>{application.kind === 'investor' ? 'Investor' : 'SME'} application dashboard</h2>
     <h3>{application.display_name}</h3><ApplicationStatus application={application} /><ApplicationDetails application={application} hideNote />
-    <div className="form-row"><button className="btn o" onClick={() => onNavigate('registration')}>Review submitted information</button><button className="btn o" onClick={() => onNavigate('documents')}>Your fictional documents</button>
-      <button className="btn" disabled={!(application.kind === 'sme' ? access.invoiceAllowed : access.transferAllowed)} aria-describedby="application-access-reason" onClick={() => onNavigate(application.kind === 'sme' ? 'invoices' : 'transfer')}>{application.kind === 'sme' ? 'Invoice workspace' : 'Transfer RLU'}</button></div>
+    <div className="form-row"><button className="btn o" onClick={() => onNavigate('registration')}>Review submitted information</button>
+      <button className="btn" disabled={!(application.kind === 'sme' ? access.invoiceAllowed : access.transferAllowed)} aria-describedby="application-access-reason" onClick={() => onNavigate(application.kind === 'sme' ? 'submitInvoice' : 'assets')}>{application.kind === 'sme' ? 'Invoice workspace' : 'Transfer RLU'}</button></div>
     {!(application.kind === 'sme' ? access.invoiceAllowed : access.transferAllowed) && <p id="application-access-reason" className="notice warning">{access.reason}</p>}
     {application.kind === 'investor' && <p className="footnote">Only the fund manager can issue RLU. An application creates no units or investment balance.</p>}
-    {application.kind === 'sme' && application.status === 'approved' && <SmeFinancingAssessment />}
+    <DocumentsPanel applicationId={application.id} allowUpload />
+    {application.kind === 'sme' && application.status === 'approved' && <><SmeCapacity /><SmeFinancingAssessment /></>}
   </section>;
 }
 
-export function PrivateAccess({ children }: { children: React.ReactNode }) {
-  const { account, networkOk, transactionPending } = useLedger();
-  const { configured, authenticated, busy, signIn, error, frontendConfigurationError } = useRegistry();
-  if (authenticated) return <>{children}</>;
-  return <section className="section-block private-access"><h2>Sign in with your wallet</h2>
-    <p>Sign a ReceivLedger sign-in message to access private applications and documents. Signing in does not send a blockchain transaction or grant investor approval.</p>
-    {!configured ? <div className="notice info"><b>Frontend Supabase configuration unavailable</b><p>{frontendConfigurationError ?? 'This build must include VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY. Check the Vercel Preview build environment or local .env.local configuration.'}</p><p>Existing blockchain features remain available.</p></div>
-      : <p className="notice info" role="status">Frontend Supabase configuration loaded. Wallet authentication and the registration service still need to be verified by signing in.</p>}
-    {!account && <p className="support-copy">Connect MetaMask first using the button above.</p>}
-    {account && !networkOk && <p className="support-copy">Switch the connected wallet to Sepolia before signing in.</p>}
-    {transactionPending && <p className="support-copy">Wait for the current wallet transaction to finish before signing in.</p>}
-    {configured && error && <p className="inline-error" role="alert">{error}</p>}
-    <button className="btn" disabled={!configured || !account || !networkOk || busy || transactionPending} onClick={() => void signIn()}>{busy ? 'Waiting for wallet sign-in…' : 'Sign in with this wallet'}</button>
+export { PrivateAccess } from '../components/PrivateAccess';
+
+export function Welcome() {
+  const { walletAvailable, walletChecking, transactionPending, connect } = useLedger();
+  return <section className="welcome-panel public-welcome">
+    <h1>Register your ReceivLedger Account</h1><p>Connect your wallet to get started.</p>
+    <button className="btn connect-primary" disabled={!walletAvailable || walletChecking || transactionPending} onClick={() => void connect()}>{walletChecking ? 'Checking wallet...' : 'Connect Your Wallet'}</button>
+    {!walletAvailable && <p className="support-copy">MetaMask is unavailable. Install or enable it from the <a className="tx-link" href="https://metamask.io/download/" target="_blank" rel="noreferrer">official MetaMask website</a>.</p>}
+    <p className="footnote">University demonstration on Ethereum Sepolia</p>
   </section>;
 }
 
-export function Welcome({ onApply }: { onApply: (kind: 'investor' | 'sme') => void }) {
-  const { account, walletAvailable, walletChecking, transactionPending, connect } = useLedger();
-  return <section className="section-block welcome-panel"><span className="section-kicker">Receivables, connected</span><h2>A clearer view of invoice financing.</h2>
-    <p>ReceivLedger brings fund units, invoice workflows and financing records into one wallet-connected workspace.</p>
-    {!account && <div className="welcome-connect"><button className="btn" disabled={!walletAvailable || walletChecking || transactionPending} onClick={() => void connect()}>Connect wallet to get started</button>
-      <p className="support-copy">{walletAvailable ? 'Unlock MetaMask, select your intended account and connect. Signing in is a separate step that you choose.' : <>MetaMask is not available. Install or enable it using the <a className="tx-link" href="https://metamask.io/download/" target="_blank" rel="noreferrer">official MetaMask website</a>, or open Help & Support.</>}</p></div>}
-    <div className="welcome-options"><div><h3>For investors</h3><p>Apply to join the fund, review your RLU holdings and follow confirmed activity.</p><button className="btn" onClick={() => onApply('investor')}>Apply as an Investor</button></div>
-      <div><h3>For SMEs</h3><p>Register your company and share fictional invoice documents for manager review.</p><button className="btn o" onClick={() => onApply('sme')}>Register as an SME</button></div></div>
-    <p className="footnote">Connect MetaMask to begin. This university prototype uses Sepolia and simulated SGD accounting. Already applied? Sign in with the same wallet to restore your saved application; private details are not cached in this browser.</p>
+export function AccountChoice({ onChoose }: { onChoose: (kind: 'investor' | 'sme') => void }) {
+  const { account, eventIndexComplete, eventsError } = useLedger();
+  const { authenticated, configured, busy, signIn, error } = useRegistry();
+  return <section className="section-block account-choice"><span className="section-kicker">Your connected wallet</span>
+    <p className="mono selectable-address">{account}</p>
+    <h2>What type of account would you like to register?</h2>
+    {!eventIndexComplete ? <p role="status">{eventsError ? 'Blockchain account recognition could not finish. Refresh before choosing a new account type.' : 'Checking existing blockchain records before offering a new account...'}</p> : <div className="welcome-options">
+      <div><h3>Investor</h3><p>Apply to hold RLU and view your investment illustrations.</p><button className="btn" onClick={() => onChoose('investor')}>Investor</button></div>
+      <div><h3>SME</h3><p>Register your company and follow its invoice financing.</p><button className="btn o" onClick={() => onChoose('sme')}>SME</button></div>
+    </div>}
+    {!authenticated && <><p className="support-copy">Already registered? Private accounts can only be recognised after secure wallet sign-in. An existing application takes precedence over a new selection.</p>
+      <button className="btn o" disabled={!configured || busy} onClick={() => void signIn()}>{busy ? 'Waiting for sign-in...' : 'Sign in to restore account'}</button></>}
+    {authenticated && <p className="notice info">No application was returned for this signed-in wallet. Choose an account type to continue without another signature.</p>}
+    {error && <p className="inline-error" role="alert">{error}</p>}
   </section>;
 }
 
@@ -110,21 +114,23 @@ function RegistrationForm({ initialKind, onSubmitted }: { initialKind: 'investor
   return <section className="section-block account-page"><div className="section-heading"><h2>{application ? 'Your application' : 'Create your wallet-linked profile'}</h2><button className="btn o small" disabled={busy} onClick={() => void refreshApplication()}>{busy ? 'Working…' : 'Refresh application'}</button></div>
     {application && <><ApplicationStatus application={application} /><details><summary>Submitted information and review dates</summary><ApplicationDetails application={application} hideNote /></details></>}
     <p className="support-copy">Use fictional names, contact details and company information for this university demonstration. Approved display names are shared with signed-in participants; contact details and company registration numbers remain private to you and the manager.</p>
+    <p className="support-copy">Fields marked with * are required. Your wallet is filled automatically. Supporting PDFs can be attached after saving.</p>
     <form className="registration-form" onSubmit={submit}>
       <label>Application type<select value={form.kind} disabled={Boolean(application) || busy} onChange={event => field('kind', event.target.value)}><option value="investor">Investor</option><option value="sme">SME</option></select></label>
-      <label>{form.kind === 'sme' ? 'Registered company name' : 'Full name'}<input required minLength={2} maxLength={100} disabled={locked || busy} value={form.display_name} onChange={event => field('display_name', event.target.value)} /></label>
-      {form.kind === 'sme' && <label>UEN / company registration number<input required maxLength={60} disabled={locked || busy} value={form.company_number} onChange={event => field('company_number', event.target.value)} /></label>}
-      <label>{form.kind === 'sme' ? 'Business email' : 'Email address'}<input type="email" required maxLength={254} disabled={locked || busy} value={form.contact_email} onChange={event => field('contact_email', event.target.value)} /></label>
-      <label>{form.kind === 'sme' ? "Contact person's phone number" : 'Contact number'}<input type="tel" required minLength={2} maxLength={40} disabled={locked || busy} value={form.contact_phone} onChange={event => field('contact_phone', event.target.value)} /></label>
-      {form.kind === 'investor' ? <label>Country of residence<input required minLength={2} maxLength={100} disabled={locked || busy} value={form.details?.country ?? ''} onChange={event => detail('country', event.target.value)} /></label> : <>
+      <label>{form.kind === 'sme' ? 'Registered company name' : 'Full name'}<span className="required-marker" aria-hidden="true" /><input required minLength={2} maxLength={100} disabled={locked || busy} value={form.display_name} onChange={event => field('display_name', event.target.value)} /></label>
+      {form.kind === 'sme' && <label>UEN / company registration number<span className="required-marker" aria-hidden="true" /><input required maxLength={60} disabled={locked || busy} value={form.company_number} onChange={event => field('company_number', event.target.value)} /></label>}
+      <label>{form.kind === 'sme' ? 'Business email' : 'Email address'}<span className="required-marker" aria-hidden="true" /><input type="email" required maxLength={254} disabled={locked || busy} value={form.contact_email} onChange={event => field('contact_email', event.target.value)} /></label>
+      <label>{form.kind === 'sme' ? "Contact person's phone number" : 'Contact number'}<span className="required-marker" aria-hidden="true" /><input type="tel" required minLength={2} maxLength={40} disabled={locked || busy} value={form.contact_phone} onChange={event => field('contact_phone', event.target.value)} /></label>
+      {form.kind === 'investor' ? <label>Country of residence<span className="required-marker" aria-hidden="true" /><input required minLength={2} maxLength={100} disabled={locked || busy} value={form.details?.country ?? ''} onChange={event => detail('country', event.target.value)} /></label> : <>
         <label>Company website (optional)<input type="url" placeholder="https://example.test" maxLength={300} disabled={locked || busy} value={form.details?.website ?? ''} onChange={event => detail('website', event.target.value)} /></label>
-        <label>Registered business address<textarea required minLength={2} maxLength={500} disabled={locked || busy} value={form.details?.business_address ?? ''} onChange={event => detail('business_address', event.target.value)} /></label>
-        <label>Contact person's name<input required minLength={2} maxLength={100} disabled={locked || busy} value={form.details?.contact_name ?? ''} onChange={event => detail('contact_name', event.target.value)} /></label>
+        <label>Registered business address<span className="required-marker" aria-hidden="true" /><textarea required minLength={2} maxLength={500} disabled={locked || busy} value={form.details?.business_address ?? ''} onChange={event => detail('business_address', event.target.value)} /></label>
+        <label>Contact person's name<span className="required-marker" aria-hidden="true" /><input required minLength={2} maxLength={100} disabled={locked || busy} value={form.details?.contact_name ?? ''} onChange={event => detail('contact_name', event.target.value)} /></label>
       </>}
       <label>Authenticated wallet<input readOnly value={account ?? ''} className="mono" /></label>
       {!locked && <><label className="consent-row"><input type="checkbox" required checked={consent} onChange={event => setConsent(event.target.checked)} />I am using fictional demonstration details and agree to share my approved display name with signed-in participants.</label><button className="btn" disabled={busy || !consent}>{busy ? 'Submitting…' : application ? 'Resubmit for review' : 'Submit application'}</button></>}
     </form>
-    {application && ['pending', 'needs_info'].includes(application.status) && <p className="footnote">Open Documents to share a fictional verification PDF. Never upload real identity documents. The manager must verify a fictional PDF before approval.</p>}
+    {application && <DocumentsPanel applicationId={application.id} allowUpload />}
+    {application && ['pending', 'needs_info'].includes(application.status) && <p className="footnote">Use the supporting document section to attach a fictional verification PDF. Never upload real identity documents. Supporting uploads can be added after submission; the manager must verify fictional KYC before approval.</p>}
     {(error || registryError) && <p className="inline-error" role="alert">{error || registryError}</p>}{message && <p className="notice info" role="status">{message}</p>}
   </section>;
 }

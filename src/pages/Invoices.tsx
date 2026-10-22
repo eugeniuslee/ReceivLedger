@@ -10,8 +10,10 @@ import { financialDate } from '../finance/presentation';
 import { InvoiceAssessment } from '../components/FinancialModels';
 import { InvoiceTimeline } from '../components/InvoiceTimeline';
 import { useRegistrationAccess } from '../registration/access';
+import { PrivateAccess } from '../components/PrivateAccess';
+import { DocumentsPanel } from './Documents';
 
-export function Invoices() {
+export function Invoices({ mode = 'workspace' }: { mode?: 'workspace' | 'list' | 'submit' }) {
   const { account, role, networkOk, snapshot, loading, transactionPending, ledger, runTransaction } = useLedger();
   const { now } = useFinance();
   const registration = useRegistrationAccess();
@@ -89,7 +91,7 @@ export function Invoices() {
 
   return <>
     {message && <p className="notice info" role="status">{message}</p>}
-    {(role === 'sme' || role === 'provisional') && account && <section className="section-block form-section">
+    {mode !== 'list' && (role === 'sme' || role === 'provisional') && account && <section className="section-block form-section">
       <div className="section-heading"><div><span className="eyebrow">Open contract function</span><h2>Submit an invoice</h2></div></div>
       <p className="support-copy">New applicants require manager SME verification to submit through this website. Solidity permits direct submitInvoice calls from arbitrary wallets; this website restriction is not enforced by the contract. Existing invoice wallets without applications retain their blockchain access.</p>
       {!registration.invoiceAllowed && <p className="notice warning" role="status">{registration.reason}</p>}
@@ -101,10 +103,10 @@ export function Invoices() {
       </form>
       {formError && <p className="inline-error" role="alert">{formError}</p>}
     </section>}
-    {role === 'sme' && <div className="notice warning">Invoice-wallet view: these records are stored under this address. The contract does not verify real-world SME identity.</div>}
-    {role === 'provisional' && <div className="notice info">This wallet has no confirmed contract role yet. Existing records, if any, are not exposed as SME invoices until their stored address is verified.</div>}
+    {mode !== 'submit' && role === 'sme' && <div className="notice warning">Invoice-wallet view: these records are stored under this address. The contract does not verify real-world SME identity.</div>}
+    {mode !== 'submit' && role === 'provisional' && <div className="notice info">This wallet has no confirmed contract role yet. Existing records, if any, are not exposed as SME invoices until their stored address is verified.</div>}
 
-    {!invoiceDataAvailable ? <div className="empty-state">Invoice records are unavailable. Refresh blockchain after checking the connection; missing records are not treated as zero invoices.</div> : <section className="section-block">
+    {mode !== 'submit' && (!invoiceDataAvailable ? <div className="empty-state">Invoice records are unavailable. Refresh blockchain after checking the connection; missing records are not treated as zero invoices.</div> : <section className="section-block">
       <div className="section-heading table-heading">
         <div><span className="eyebrow">Deployed contract</span><h2>Invoices</h2></div>
         <label className="filter-label">Status<select value={filter} onChange={event => setFilter(event.target.value)}>{['All', 'Submitted', 'Approved', 'Financed', 'Overdue', 'Rejected', 'Repaid'].map(status => <option key={status}>{status}</option>)}</select></label>
@@ -121,7 +123,7 @@ export function Invoices() {
       </table></div> : <div className="empty-state compact">{role === 'sme' ? 'No invoices submitted by this wallet were found in contract mappings.' : role === 'provisional' ? 'No invoices are currently mapped to this wallet.' : 'No invoices match this status.'}</div>}
       {formError && <p className="inline-error" role="alert">{formError}</p>}
       <p className="footnote">Finance and repayment update simulated contract accounting only. No SGD or ETH is transferred. A finance attempt may succeed as a transaction while the contract changes the invoice to Rejected; the row will show the recorded reason.</p>
-    </section>}
+    </section>)}
     {invoiceDataAvailable && (role === 'manager' || role === 'sme') && selectedInvoice && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setSelectedId(null); }}>
       <section className="invoice-modal" role="dialog" aria-modal="true" aria-labelledby="invoice-modal-title">
         <div className="section-heading"><div><span className="eyebrow">On-chain invoice record</span><h2 id="invoice-modal-title">Invoice #{selectedInvoice.id.toString()}</h2></div><button className="btn outline" onClick={() => setSelectedId(null)} aria-label="Close invoice details">Close</button></div>
@@ -138,6 +140,7 @@ export function Invoices() {
           <div><dt>Payer exposure</dt><dd>{exposureLoading ? 'Loading…' : payerExposure?.payer === selectedInvoice.payer ? `${formatMoney(payerExposure.exposure)} of ${formatMoney(payerExposure.maximum)}` : '—'}</dd></div></>}
         </dl>
         <InvoiceTimeline invoiceId={selectedInvoice.id} />
+        <PrivateAccess><DocumentsPanel key={selectedInvoice.id.toString()} invoiceId={selectedInvoice.id.toString()} /></PrivateAccess>
         {(selectedInvoice.status === 'Submitted' || selectedInvoice.status === 'Approved') && <InvoiceAssessment key={selectedInvoice.id.toString()} invoice={selectedInvoice} />}
         {exposureError && <p className="inline-error" role="alert">Payer exposure unavailable: {exposureError}</p>}
         {formError && <p className="inline-error" role="alert">{formError}</p>}
@@ -147,7 +150,7 @@ export function Invoices() {
           {selectedAction === 'repay' && <button className="btn" disabled={transactionPending} onClick={() => void act(ledger => ledger.recordRepayment(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : 'Record repayment'}</button>}
           {!selectedAction && <span className="sub">Read-only invoice state</span>}
         </div>}
-        <p className="footnote">The contract stores no PDF. Open Documents to review private fictional PDFs linked to this invoice ID. Financing changes simulated accounting and does not transfer SGD or ETH.</p>
+        <p className="footnote">The contract stores no PDF. Private fictional PDFs above are linked to this invoice ID and require separate wallet authentication. Financing changes simulated accounting and does not transfer SGD or ETH.</p>
       </section>
     </div>}
   </>;

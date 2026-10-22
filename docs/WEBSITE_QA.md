@@ -1,5 +1,7 @@
 # ReceivLedger website integration and QA
 
+Historical QA pass: the latest navigation and registration changes are documented in [REGISTRATION_RESTRUCTURE.md](REGISTRATION_RESTRUCTURE.md).
+
 Current review: 22 October 2026. Repository: `C:\Users\Eugen\Documents\GitHub\ReceivLedger`, branch `feat/phase4-supabase-audit`. This pass changes local frontend code, tests and documentation only. It does not deploy, request a wallet signature, send a transaction, or change hosted settings.
 
 ## Completed local improvements

@@ -2,7 +2,7 @@
 
 ## Current implementation
 
-Use the existing Git repository `C:\Users\Eugen\Documents\GitHub\ReceivLedger` on `feat/phase4-supabase-audit`. Do not use the old OneDrive/export folder or create a replacement repository. Batch 1, Batch 2 and Batch 3 are implemented. The preceding approved Supabase activation applied all three migrations and deployed `registry`; successful hosted wallet acceptance is still pending. Current local frontend QA changes are uncommitted and unpublished. See [WEBSITE_QA.md](WEBSITE_QA.md) for current scope and role-specific acceptance; earlier export reports describe historical verification dates.
+Use the existing Git repository `C:\Users\Eugen\Documents\GitHub\ReceivLedger` on `feat/registration-ux-restructure`. Do not use the old OneDrive/export folder or create a replacement repository. Batch 1, Batch 2 and Batch 3 are implemented. The preceding approved Supabase activation applied all three migrations and deployed `registry`; successful hosted wallet acceptance is still pending. Current local frontend QA changes are uncommitted and unpublished. See [REGISTRATION_RESTRUCTURE.md](REGISTRATION_RESTRUCTURE.md) for the latest interface, production origin blocker and role-specific acceptance; [WEBSITE_QA.md](WEBSITE_QA.md) describes the preceding QA pass; earlier export reports describe historical verification dates.
 
 The running application reads the deployed Sepolia contract, rather than the retained demo ledger. Fund capital, financing and repayment are simulated SGD accounting recorded on-chain; they do not transfer investment proceeds or financing payments. RLU has 0 decimals.
 

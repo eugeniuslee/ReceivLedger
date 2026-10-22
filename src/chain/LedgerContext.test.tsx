@@ -68,18 +68,18 @@ describe('wallet provider refresh and disconnection', () => {
   it('shows public onboarding without an installed wallet instead of a role-loading screen', async () => {
     delete (window as Window & { ethereum?: unknown }).ethereum;
     render(<LedgerProvider><LedgerApp /></LedgerProvider>);
-    await screen.findByRole('button', { name: 'Apply as an Investor' });
-    expect(screen.getByRole('button', { name: 'Register as an SME' })).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Connect MetaMask' }) as HTMLButtonElement).disabled).toBe(true);
+    await screen.findByRole('button', { name: 'Connect Your Wallet' });
+    expect(screen.queryByRole('button', { name: 'SME' })).toBeNull();
+    expect((screen.getByRole('button', { name: 'Connect Your Wallet' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByText('Checking the connected wallet role…')).toBeNull();
     expect(request).not.toHaveBeenCalled();
   });
   it('shows public onboarding with an available but disconnected wallet', async () => {
     accounts = [];
     render(<LedgerProvider><LedgerApp /></LedgerProvider>);
-    await screen.findByRole('button', { name: 'Apply as an Investor' });
-    expect((screen.getByRole('button', { name: 'Connect MetaMask' }) as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByRole('button', { name: 'Register as an SME' })).toBeTruthy();
+    await screen.findByRole('button', { name: 'Connect Your Wallet' });
+    expect((screen.getByRole('button', { name: 'Connect Your Wallet' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole('button', { name: 'SME' })).toBeNull();
     expect(calls.read).not.toHaveBeenCalled();
   });
   it('returns to public onboarding when MetaMask removes all accounts', async () => {
@@ -89,7 +89,7 @@ describe('wallet provider refresh and disconnection', () => {
     await act(async () => { listeners.accountsChanged(accounts); });
     expect(current.account).toBeNull(); expect(current.snapshot).toBeNull(); expect(current.events).toEqual([]);
     expect(current.loading).toBe(false); expect(current.walletChecking).toBe(false);
-    expect(screen.getByRole('button', { name: 'Apply as an Investor' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Connect Your Wallet' })).toBeTruthy();
     expect(screen.queryByText('Checking the connected wallet role…')).toBeNull();
   });
   it('settles provisional history indexing without repeatedly refreshing snapshots', async () => {

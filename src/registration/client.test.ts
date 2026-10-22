@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
-import { readSupabaseConfiguration } from './client';
+import { registryRequest, readSupabaseConfiguration } from './client';
 
 vi.mock('@supabase/supabase-js', () => ({ createClient: vi.fn() }));
 const url = 'https://configuration-test.supabase.co';
@@ -42,5 +42,25 @@ describe('frontend configuration diagnostics and validation', () => {
     const result = readSupabaseConfiguration(url, key);
     expect(result.client).toBeNull(); expect(result.configurationError).toContain('could not initialize');
     expect(result.configurationError).not.toContain('Internal key material');
+  });
+});
+
+
+describe('registration service diagnostics', () => {
+  it.each([
+    ['FunctionsFetchError', 'exact origin in ALLOWED_ORIGINS'],
+    ['FunctionsRelayError', 'gateway could not reach'],
+  ])('distinguishes %s from missing frontend configuration', async (name, expected) => {
+    const invoke = vi.fn().mockResolvedValue({ data: null, error: { name } });
+    const client = { functions: { invoke } } as unknown as ReturnType<typeof createClient>;
+    await expect(registryRequest(client, 'fixture-session', { action: 'bootstrap' })).rejects.toThrow(expected);
+    expect(invoke).toHaveBeenCalledWith('registry', expect.objectContaining({ headers: { Authorization: 'Bearer fixture-session' } }));
+  });
+  it.each([
+    ['Origin is not allowed.', 'origin is not authorised'],
+    ['Sign in with your wallet first.', 'Sign in with your wallet first.'],
+  ])('preserves a safe server diagnosis: %s', async (message, expected) => {
+    const client = { functions: { invoke: vi.fn().mockResolvedValue({ data: null, error: { name: 'FunctionsHttpError', context: new Response(JSON.stringify({ error: message }), { status: 403 }) } }) } } as unknown as ReturnType<typeof createClient>;
+    await expect(registryRequest(client, 'fixture-session', {})).rejects.toThrow(expected);
   });
 });
