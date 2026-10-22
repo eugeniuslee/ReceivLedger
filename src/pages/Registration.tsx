@@ -5,10 +5,14 @@ import { registrationInput, type Application, type RegistrationInput } from '../
 import type { PageId } from '../chain/access';
 import { ApplicationDetails } from '../components/ApplicationDetails';
 import { registrationAccess } from '../registration/access';
+import { userFacingError } from '../errors';
+import { SmeFinancingAssessment } from './Reports';
+
+const statusLabels = { pending: 'Pending Review', needs_info: 'Additional information requested', approved: 'Approved', rejected: 'Rejected', suspended: 'Suspended', revoked: 'Revoked (off-chain)' };
 
 export function ApplicationStatus({ application: app }: { application: Application }) {
   return <div className={`notice ${['rejected', 'suspended', 'revoked'].includes(app.status) ? 'warning' : 'info'}`}>
-    <b>Application: {app.status === 'needs_info' ? 'Additional information requested' : app.status}</b>
+    <b>Application: {statusLabels[app.status]}</b>
     {app.review_note && <p>Manager note: {app.review_note}</p>}
     {['pending', 'needs_info'].includes(app.status) && <p>Estimated demo review target: up to 3 working days. This is illustrative and is not a guaranteed service commitment.</p>}
     <p>{app.kind === 'sme' ? 'SME verification is off-chain. Website restrictions do not prevent direct submitInvoice calls to Solidity.' : 'Live contract approval is required for RLU transfers. Off-chain approval never overrides on-chain revocation.'}</p>
@@ -22,9 +26,10 @@ export function ApplicationDashboard({ onNavigate }: { onNavigate: (page: PageId
   return <section className="section-block"><h2>{application.kind === 'investor' ? 'Investor' : 'SME'} application dashboard</h2>
     <h3>{application.display_name}</h3><ApplicationStatus application={application} /><ApplicationDetails application={application} hideNote />
     <div className="form-row"><button className="btn o" onClick={() => onNavigate('registration')}>Review submitted information</button><button className="btn o" onClick={() => onNavigate('documents')}>Your fictional documents</button>
-      <button className="btn" onClick={() => onNavigate(application.kind === 'sme' ? 'invoices' : 'transfer')}>{application.kind === 'sme' ? 'Invoice workspace' : 'Transfer RLU'}</button></div>
-    {!(application.kind === 'sme' ? access.invoiceAllowed : access.transferAllowed) && <p className="notice warning">{access.reason}</p>}
+      <button className="btn" disabled={!(application.kind === 'sme' ? access.invoiceAllowed : access.transferAllowed)} aria-describedby="application-access-reason" onClick={() => onNavigate(application.kind === 'sme' ? 'invoices' : 'transfer')}>{application.kind === 'sme' ? 'Invoice workspace' : 'Transfer RLU'}</button></div>
+    {!(application.kind === 'sme' ? access.invoiceAllowed : access.transferAllowed) && <p id="application-access-reason" className="notice warning">{access.reason}</p>}
     {application.kind === 'investor' && <p className="footnote">Only the fund manager can issue RLU. An application creates no units or investment balance.</p>}
+    {application.kind === 'sme' && application.status === 'approved' && <SmeFinancingAssessment />}
   </section>;
 }
 
@@ -33,7 +38,7 @@ export function PrivateAccess({ children }: { children: React.ReactNode }) {
   const { configured, authenticated, busy, signIn, error, frontendConfigurationError } = useRegistry();
   if (authenticated) return <>{children}</>;
   return <section className="section-block private-access"><h2>Sign in with your wallet</h2>
-    <p>Sign a ReceiveLedger sign-in message to access private applications and documents. Signing in does not send a blockchain transaction or grant investor approval.</p>
+    <p>Sign a ReceivLedger sign-in message to access private applications and documents. Signing in does not send a blockchain transaction or grant investor approval.</p>
     {!configured ? <div className="notice info"><b>Frontend Supabase configuration unavailable</b><p>{frontendConfigurationError ?? 'This build must include VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY. Check the Vercel Preview build environment or local .env.local configuration.'}</p><p>Existing blockchain features remain available.</p></div>
       : <p className="notice info" role="status">Frontend Supabase configuration loaded. Wallet authentication and the registration service still need to be verified by signing in.</p>}
     {!account && <p className="support-copy">Connect MetaMask first using the button above.</p>}
@@ -45,8 +50,11 @@ export function PrivateAccess({ children }: { children: React.ReactNode }) {
 }
 
 export function Welcome({ onApply }: { onApply: (kind: 'investor' | 'sme') => void }) {
+  const { account, walletAvailable, walletChecking, transactionPending, connect } = useLedger();
   return <section className="section-block welcome-panel"><span className="section-kicker">Receivables, connected</span><h2>A clearer view of invoice financing.</h2>
-    <p>ReceiveLedger brings fund units, invoice workflows and financing records into one wallet-connected workspace.</p>
+    <p>ReceivLedger brings fund units, invoice workflows and financing records into one wallet-connected workspace.</p>
+    {!account && <div className="welcome-connect"><button className="btn" disabled={!walletAvailable || walletChecking || transactionPending} onClick={() => void connect()}>Connect wallet to get started</button>
+      <p className="support-copy">{walletAvailable ? 'Unlock MetaMask, select your intended account and connect. Signing in is a separate step that you choose.' : <>MetaMask is not available. Install or enable it using the <a className="tx-link" href="https://metamask.io/download/" target="_blank" rel="noreferrer">official MetaMask website</a>, or open Help & Support.</>}</p></div>}
     <div className="welcome-options"><div><h3>For investors</h3><p>Apply to join the fund, review your RLU holdings and follow confirmed activity.</p><button className="btn" onClick={() => onApply('investor')}>Apply as an Investor</button></div>
       <div><h3>For SMEs</h3><p>Register your company and share fictional invoice documents for manager review.</p><button className="btn o" onClick={() => onApply('sme')}>Register as an SME</button></div></div>
     <p className="footnote">Connect MetaMask to begin. This university prototype uses Sepolia and simulated SGD accounting. Already applied? Sign in with the same wallet to restore your saved application; private details are not cached in this browser.</p>
@@ -55,10 +63,12 @@ export function Welcome({ onApply }: { onApply: (kind: 'investor' | 'sme') => vo
 
 export function RegistrationSummary({ onNavigate }: { onNavigate: (page: PageId) => void }) {
   const { role } = useLedger();
-  const { application, authenticated } = useRegistry();
+  const { application, authenticated, requiresRegistrationSession } = useRegistry();
+  const access = registrationAccess(role, application, authenticated, requiresRegistrationSession);
   if (role === 'manager') return <section className="section-block"><div className="section-heading"><h2>Application & document review</h2><button className="btn o small" onClick={() => onNavigate('applications')}>Review applications</button></div><p className="support-copy">Review fictional KYC, approve investor access on Sepolia, and verify SMEs off-chain.</p></section>;
-  return <section className="section-block"><div className="section-heading"><h2>{application?.display_name ?? 'Your ReceiveLedger profile'}</h2><button className="btn o small" onClick={() => onNavigate('registration')}>{application ? 'View application' : 'Register or sign in'}</button></div>
+  return <section className="section-block"><div className="section-heading"><h2>{application?.display_name ?? 'Your ReceivLedger profile'}</h2><button className="btn o small" onClick={() => onNavigate('registration')}>{application ? 'View application' : 'Register or sign in'}</button></div>
     {application && <ApplicationStatus application={application} />}
+    {application && application.status !== 'approved' && <p className="notice warning">{access.reason}</p>}
     <p className="support-copy">{application ? `${application.kind === 'sme' ? 'SME' : 'Investor'} application: ${application.status}. ${application.kind === 'sme' ? 'SME verification is off-chain.' : 'Live investor permissions are determined by the contract.'}` : authenticated ? 'Submit an Investor or SME application using fictional demonstration details.' : 'Sign in to access your wallet-linked registration and private documents. Existing blockchain access is preserved.'}</p>
   </section>;
 }
@@ -73,6 +83,12 @@ function RegistrationForm({ initialKind, onSubmitted }: { initialKind: 'investor
   const [form, setForm] = useState<RegistrationInput>({ kind: initialKind, display_name: '', company_number: '', contact_email: '', contact_phone: '', details: blankDetails });
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [message, setMessage] = useState('');
+  async function refreshApplication() {
+    setBusy(true); setError(''); setMessage('');
+    try { await reload(); setMessage('Application refreshed from the registration service.'); }
+    catch (cause) { setError(userFacingError(cause, 'Application could not be refreshed. Please try again.')); }
+    finally { setBusy(false); }
+  }
   useEffect(() => {
     if (application) setForm({ kind: application.kind, display_name: application.display_name, company_number: application.company_number, contact_email: application.contact_email, contact_phone: application.contact_phone, details: application.details ?? blankDetails });
   }, [application]);
@@ -82,14 +98,16 @@ function RegistrationForm({ initialKind, onSubmitted }: { initialKind: 'investor
   function detail(key: keyof NonNullable<RegistrationInput['details']>, value: string) { setForm(previous => ({ ...previous, details: { ...blankDetails, ...previous.details, [key]: value } })); }
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setError(''); setMessage('');
+    let saved = false;
     try {
       const validated = registrationInput(form);
       await request<Application>({ action: 'submit', application: validated, demo_consent: consent });
+      saved = true;
       await reload(); setMessage('Application submitted for manager review. No on-chain approval was granted.'); onSubmitted?.();
-    } catch (cause) { setError((cause as Error).message); }
+    } catch (cause) { setError(`${saved ? 'Application saved, but the page could not be refreshed. Use Refresh application before resubmitting. ' : ''}${userFacingError(cause)}`); }
     finally { setBusy(false); }
   }
-  return <section className="section-block account-page"><div className="section-heading"><h2>{application ? 'Your application' : 'Create your wallet-linked profile'}</h2><button className="btn o small" disabled={busy} onClick={() => void reload()}>Refresh application</button></div>
+  return <section className="section-block account-page"><div className="section-heading"><h2>{application ? 'Your application' : 'Create your wallet-linked profile'}</h2><button className="btn o small" disabled={busy} onClick={() => void refreshApplication()}>{busy ? 'Working…' : 'Refresh application'}</button></div>
     {application && <><ApplicationStatus application={application} /><details><summary>Submitted information and review dates</summary><ApplicationDetails application={application} hideNote /></details></>}
     <p className="support-copy">Use fictional names, contact details and company information for this university demonstration. Approved display names are shared with signed-in participants; contact details and company registration numbers remain private to you and the manager.</p>
     <form className="registration-form" onSubmit={submit}>

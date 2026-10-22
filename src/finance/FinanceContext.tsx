@@ -1,3 +1,4 @@
+import { userFacingError } from '../errors';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLedger } from '../chain/LedgerContext';
 import type { FinancialSnapshot } from './models';
@@ -22,7 +23,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       const data = await ledger.readFinancialSnapshot(account);
       if (current()) setState({ key, version, data, loading: false, error: null });
     } catch (cause) {
-      if (current()) setState(previous => ({ key, version, data: previous?.key === key ? previous.data : null, loading: false, error: (cause as Error).message }));
+      if (current()) setState(previous => ({ key, version, data: previous?.key === key ? previous.data : null, loading: false, error: userFacingError(cause) }));
     }
   }, [key, ledger, account]);
   useEffect(() => { void refresh(); return () => { sequence.current++; }; }, [refresh, snapshot]);

@@ -2,7 +2,9 @@
 
 This is a **Vite** project: local browser configuration uses `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in ignored `.env.local`. `NEXT_PUBLIC_*` names belong to Next.js and are not read by this app; `.env.example` is a template and is not loaded automatically. The repository audit corrected those template names while preserving the existing browser-safe values. See [REPOSITORY_VERIFICATION.md](REPOSITORY_VERIFICATION.md) for the current branch/history findings and checks; earlier phase reports describe their original verification dates, not proof of hosted activation.
 
-The frontend, migration and Edge Function are prepared locally. No hosted migration, function deployment, authentication setting change or blockchain transaction has been performed by the agent. The Project URL and publishable key alone are not sufficient to activate these workflows.
+Project `gltivccwuryzlgpqvyll` was activated with the owner's explicit approval on 22 October 2026: all three migrations were applied, five tables and seven policies were verified, the private PDF bucket was created, and `registry` version 1 was deployed ACTIVE. Both custom server settings and the exact Preview root redirect were configured, preserving existing Auth URLs. Six live preflight/negative HTTP checks passed. No wallet signatures or blockchain transactions were executed. Successful hosted registration, private document workflows and manager review remain unverified end to end. See [WEBSITE_QA.md](WEBSITE_QA.md) for the current implementation and acceptance checklist.
+
+The procedures below are reference instructions for missing configuration or another explicitly approved project. **Do not rerun already applied migrations or redeploy merely to follow the historical setup sequence.** Frontend changes from this local QA pass have not been published to Vercel.
 
 ## Required configuration
 

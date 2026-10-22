@@ -5,6 +5,7 @@ import { registryClient, registryConfigurationError, registryRequest } from './c
 import { createSignInMessage, sameWallet } from './auth';
 import { needsApplicationSession, rememberApplicationWallet } from './enrollment';
 import type { Application, RegistrySnapshot } from '../../supabase/functions/_shared/domain';
+import { userFacingError, walletErrorMessage } from '../errors';
 
 interface DirectoryName { wallet: string; display_name: string; kind: string }
 interface AuthenticatedState extends RegistrySnapshot { token: string; scope: string; version: number; names: DirectoryName[] }
@@ -99,7 +100,11 @@ export function RegistryProvider({ children, client = registryClient }: { childr
         setState({ ...snapshot, token, scope: signingAccount.toLowerCase(), version, names });
       } catch (cause) {
         await client.auth.signOut({ scope: 'local' }).catch(() => {});
-        if (version === generation.current.version) { setState(null); setError(`${stage} failed: ${(cause as Error).message}`); }
+        if (version === generation.current.version) {
+          setState(null);
+          setError(stage === 'Wallet signature' ? walletErrorMessage(cause, 'signature')
+            : `${stage} failed: ${userFacingError(cause, 'The service could not complete sign-in. Check its configuration and try again.')}`);
+        }
       } finally { operationInFlight.current = false; setBusy(false); }
     });
   }
@@ -134,14 +139,20 @@ export function RegistryProvider({ children, client = registryClient }: { childr
   async function reload() {
     const active = stateRef.current; if (!active) return;
     const version = generation.current.version;
+    setError(null);
     try {
       const snapshot = await request<RegistrySnapshot>({ action: 'bootstrap' });
+      if (!sameWallet(snapshot.profile.wallet, active.profile.wallet) || snapshot.profile.user_id !== active.profile.user_id) throw new Error('The refreshed profile did not match this wallet. Sign in again.');
       const names = await request<DirectoryName[]>({ action: 'directory' });
       if (version === generation.current.version) {
         if (snapshot.application) rememberApplicationWallet(active.profile.wallet);
         setState({ ...snapshot, scope: active.scope, version, token: stateRef.current?.token ?? active.token, names });
       }
-    } catch (cause) { if (version === generation.current.version) setError((cause as Error).message); }
+    } catch (cause) {
+      const message = userFacingError(cause, 'Private records could not be refreshed. Please try again.');
+      if (version === generation.current.version) setError(message);
+      throw new Error(message);
+    }
   }
   const value: RegistryContextValue = { configured: Boolean(client), authenticated: Boolean(authenticated), busy,
     requiresRegistrationSession: Boolean(authenticated?.application) || needsApplicationSession(account),

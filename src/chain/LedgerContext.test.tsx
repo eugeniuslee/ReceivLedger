@@ -50,6 +50,21 @@ async function mountWallet() {
 }
 
 describe('wallet provider refresh and disconnection', () => {
+  it('explains a rejected connection without leaking the provider payload or requesting a signature', async () => {
+    accounts = [];
+    render(<LedgerProvider><Probe /></LedgerProvider>);
+    await waitFor(() => expect(current.walletAvailable && !current.walletChecking).toBe(true));
+    request.mockImplementation(async ({ method }: { method: string }) => {
+      if (method === 'eth_requestAccounts') throw { code: 4001, message: '{sensitive provider JSON}' };
+      if (method === 'eth_accounts') return [];
+      if (method === 'eth_chainId') return '0xaa36a7';
+      throw new Error('Unexpected request');
+    });
+    await act(async () => { await current.connect(); });
+    expect(current.error).toBe('Wallet connection cancelled.');
+    expect(current.walletChecking).toBe(false); expect(current.account).toBeNull();
+    expect(request.mock.calls.some(([input]) => ['personal_sign', 'eth_sign', 'eth_sendTransaction'].includes(input.method))).toBe(false);
+  });
   it('shows public onboarding without an installed wallet instead of a role-loading screen', async () => {
     delete (window as Window & { ethereum?: unknown }).ethereum;
     render(<LedgerProvider><LedgerApp /></LedgerProvider>);

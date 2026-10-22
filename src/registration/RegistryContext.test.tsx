@@ -33,6 +33,27 @@ afterEach(cleanup);
 async function authenticate() { fireEvent.click(screen.getByRole('button', { name: 'Sign in' })); await waitFor(() => expect(current.authenticated).toBe(true)); }
 
 describe('private session and wallet isolation', () => {
+  it('reports cancelled signatures without provider payloads or contacting Auth', async () => {
+    wallet.signWalletMessage.mockRejectedValue({ code: 'ACTION_REJECTED', info: { error: { code: 4001 } }, message: '{private wallet payload}' });
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(current.error).toBe('Sign-in cancelled. No changes were made.'));
+    expect(signIn).not.toHaveBeenCalled(); expect(registryRequest).not.toHaveBeenCalled();
+    expect(current.authenticated).toBe(false);
+  });
+  it('surfaces refresh failure to callers, clears its error on retry and rejects mismatched profiles', async () => {
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await authenticate();
+    vi.mocked(registryRequest).mockRejectedValueOnce(new Error('Registration service temporarily unavailable.'));
+    await act(async () => { await expect(current.reload()).rejects.toThrow('temporarily unavailable'); });
+    expect(current.error).toContain('temporarily unavailable');
+    await act(async () => { await current.reload(); });
+    expect(current.error).toBeNull();
+    vi.mocked(registryRequest).mockResolvedValueOnce(snapshot(bob));
+    await act(async () => { await expect(current.reload()).rejects.toThrow('did not match this wallet'); });
+    expect(current.registeredName).toBe('Fictional Alice');
+    expect(current.error).toContain('did not match this wallet');
+  });
   it('identifies Supabase authentication failure without losing frontend readiness', async () => {
     signIn.mockResolvedValue({ data: { session: null }, error: new Error('Ethereum provider is disabled.') });
     render(<RegistryProvider client={client}><Probe /></RegistryProvider>);

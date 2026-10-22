@@ -1,3 +1,4 @@
+import { userFacingError } from '../errors';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isAddress } from 'ethers';
 import { useLedger } from '../chain/LedgerContext';
@@ -60,7 +61,7 @@ export function InvestorAdmin() {
       return result;
     }).catch(cause => {
       if (requestVersions.current.get(key) === requestVersion && activeAccountRef.current?.toLowerCase() === requestAccount?.toLowerCase()) {
-        setPageError((cause as Error).message);
+        setPageError(userFacingError(cause));
       }
       return null;
     }).finally(() => {
@@ -139,7 +140,7 @@ export function InvestorAdmin() {
       setActionNotice(refreshed?.approved
         ? { tone: 'success', message: 'Investor approval confirmed and status refreshed from Sepolia.' }
         : { tone: 'error', message: 'Transaction confirmed, but the approval status refresh failed. Use Refresh wallet to retry.' });
-    } catch (cause) { setActionNotice(cancellationNotice((cause as Error).message)); }
+    } catch (cause) { setActionNotice(cancellationNotice(userFacingError(cause))); }
   }
 
   async function revokeInvestor() {
@@ -158,7 +159,7 @@ export function InvestorAdmin() {
       setActionNotice(refreshed && !refreshed.approved
         ? { tone: 'success', message: 'Investor revocation confirmed. Current token holdings are unchanged.' }
         : { tone: 'error', message: 'Transaction confirmed, but the approval refresh failed. Use Refresh wallet to retry.' });
-    } catch (cause) { setActionNotice(cancellationNotice((cause as Error).message)); }
+    } catch (cause) { setActionNotice(cancellationNotice(userFacingError(cause))); }
   }
 
   async function issueFundUnits() {
@@ -181,7 +182,7 @@ export function InvestorAdmin() {
       setActionNotice(refreshed
         ? { tone: 'success', message: `${formatInteger(amount)} RLU issuance confirmed; current balance refreshed from Sepolia.` }
         : { tone: 'error', message: 'Issuance confirmed, but the balance refresh failed. Use Refresh wallet to retry.' });
-    } catch (cause) { setActionNotice(cancellationNotice((cause as Error).message)); }
+    } catch (cause) { setActionNotice(cancellationNotice(userFacingError(cause))); }
   }
 
   if (!networkOk) return <div className="empty-state">Switch to Sepolia to load investor ownership data.</div>;

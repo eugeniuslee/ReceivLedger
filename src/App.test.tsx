@@ -1,5 +1,5 @@
 ﻿// @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LedgerApp } from './App';
 import { useLedger } from './chain/LedgerContext';
@@ -32,6 +32,19 @@ afterEach(cleanup);
 function openProfileMenu() { fireEvent.click(screen.getByRole('button', { name: /^Account:/ })); }
 
 describe('Stage A wallet navigation and account controls', () => {
+  it('orders the manager workflow and groups support links above the prototype note', () => {
+    render(<LedgerApp />);
+    const main = screen.getByRole('navigation', { name: 'Main navigation' });
+    expect(within(main).getAllByRole('button').map(button => button.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual([
+      'Home', 'Applications', 'Investors', 'Invoice management', 'Financial reports', 'Documents', 'Transaction history',
+    ]);
+    const footer = screen.getByRole('navigation', { name: 'Support navigation' }).parentElement!;
+    expect(footer.className).toBe('side-footer');
+    expect(within(footer).getByText('Ethereum Sepolia · University prototype')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /About ReceivLedger/ }));
+    expect(screen.getByRole('heading', { name: 'About ReceivLedger', level: 2 })).toBeTruthy();
+    expect(screen.queryByText(/ReceiveLedger/)).toBeNull();
+  });
   it('describes inactive investor approval without inventing a revocation event', () => {
     wallet.role = 'inactiveInvestor';
     render(<LedgerApp />);
@@ -104,6 +117,7 @@ describe('Stage A wallet navigation and account controls', () => {
     fireEvent.click(screen.getByRole('button', { name: /Refresh blockchain/ }));
     await waitFor(() => expect(wallet.refreshEvents).toHaveBeenCalledWith(true));
     expect(wallet.refresh).toHaveBeenCalledWith(true);
+    expect(await screen.findByText('Blockchain refresh completed.')).toBeTruthy();
   });
 
   it('shows refresh loading and failure feedback', () => {
@@ -146,7 +160,7 @@ describe('Stage A wallet navigation and account controls', () => {
     render(<LedgerApp />);
     fireEvent.click(screen.getByRole('button', { name: /Help & Support/ }));
     expect(screen.getByText('No project support contact has been configured.', { exact: false })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /About ReceiveLedger/ }));
+    fireEvent.click(screen.getByRole('button', { name: /About ReceivLedger/ }));
     expect(screen.getByText('What the prototype represents')).toBeTruthy();
   });
 

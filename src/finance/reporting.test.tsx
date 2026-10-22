@@ -20,6 +20,19 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('reporting access and scenario isolation', () => {
+  it('keeps repaid SME invoices out of outstanding principal and marks only financed records overdue on Home', () => {
+    wallet.role = 'sme';
+    const invoices = [testInvoice({ status: 'Financed', amount: 120n, maturity: testNow - 86400n }), testInvoice({ id: 2n, status: 'Repaid', amount: 200n, maturity: testNow - 86400n })];
+    wallet.snapshot = { role: 'sme', manager: '0xmanager', invoices };
+    render(<Dashboard />);
+    const metric = screen.getByText('Outstanding financed principal').closest('.metric')!;
+    expect(within(metric as HTMLElement).getByText('S$120')).toBeTruthy();
+    expect(within(screen.getByText('Repaid invoices').closest('.metric') as HTMLElement).getByText('1')).toBeTruthy();
+    expect(screen.getAllByText(/overdue/i)).toHaveLength(1);
+    expect(screen.getByText('Maturity (SGT)')).toBeTruthy();
+    expect(screen.getByText('Invoice face value')).toBeTruthy();
+    expect(wallet.runTransaction).not.toHaveBeenCalled();
+  });
   it('does not infer revocation from a currently unapproved holding', () => {
     wallet.role = 'inactiveInvestor';
     wallet.snapshot = { role: 'inactiveInvestor', manager: '0xmanager', approved: false, connectedBalance: 250n };

@@ -33,6 +33,36 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('new-wallet onboarding and secure registration forms', () => {
+  it('offers a public connection entry point and official installation help without requesting a signature', () => {
+    wallet.account = null; wallet.role = null; wallet.walletAvailable = false; wallet.connect = vi.fn();
+    render(<LedgerApp />);
+    expect((screen.getByRole('button', { name: 'Connect wallet to get started' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('link', { name: 'official MetaMask website' }).getAttribute('href')).toBe('https://metamask.io/download/');
+    expect(wallet.connect).not.toHaveBeenCalled(); expect(registry.signIn).not.toHaveBeenCalled();
+  });
+  it('disables the pending-dashboard financial action and displays the review reason', () => {
+    registry.application = application;
+    render(<ApplicationDashboard onNavigate={vi.fn()} />);
+    expect(screen.getByText('Application: Pending Review')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Transfer RLU' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Manager verification is pending/)).toBeTruthy();
+  });
+  it('never turns unavailable manager invoice records into a zero count', () => {
+    wallet.role = 'manager'; wallet.snapshot = null;
+    render(<Invoices />);
+    expect(screen.getByText(/missing records are not treated as zero invoices/)).toBeTruthy();
+    expect(screen.queryByText('No invoices match this status.')).toBeNull();
+    expect(wallet.runTransaction).not.toHaveBeenCalled();
+  });
+  it('reports application refresh failure and success with a recoverable button', async () => {
+    vi.mocked(registry.reload).mockRejectedValueOnce(new Error('Registration service unavailable.')).mockResolvedValue(undefined);
+    render(<Registration />);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh application' }));
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Registration service unavailable.');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh application' }));
+    expect(await screen.findByText('Application refreshed from the registration service.')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
   it('welcomes an unknown connected wallet with both registration paths', () => {
     render(<LedgerApp />);
     expect(screen.getByRole('button', { name: 'Apply as an Investor' })).toBeTruthy();

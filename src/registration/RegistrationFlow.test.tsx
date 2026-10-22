@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Registration } from '../pages/Registration';
 import { Applications } from '../pages/Applications';
+import { DocumentsPanel } from '../pages/Documents';
 import type { Application } from '../../supabase/functions/_shared/domain';
 import { useRegistry } from './RegistryContext';
 import { useLedger } from '../chain/LedgerContext';
@@ -26,6 +27,51 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('registration forms and review recovery', () => {
+  it('distinguishes document loading, failure and a successfully refreshed empty list', async () => {
+    let fail!: (cause: Error) => void;
+    vi.mocked(registry.request).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    render(<DocumentsPanel />);
+    expect(screen.getByText('Loading private documents…')).toBeTruthy();
+    expect(screen.queryByText('No documents were returned for this view.')).toBeNull();
+    await act(async () => { fail(new Error('Private document service unavailable.')); });
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Private document service unavailable.');
+    expect(screen.queryByText('No documents were returned for this view.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh documents' }));
+    expect(await screen.findByText('Documents refreshed.')).toBeTruthy();
+    expect(screen.getByText('No documents were returned for this view.')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+  it('does not publish a stale document response after changing the selected application', async () => {
+    registry.isManager = true;
+    let finish!: (value: unknown) => void;
+    const nextId = '10000000-0000-0000-0000-000000000002';
+    vi.mocked(registry.request).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+      .mockResolvedValueOnce([{ id: 'new-doc', application_id: nextId, filename: 'current-application.pdf', purpose: 'kyc', status: 'verified', byte_size: 100, sha256: 'a'.repeat(64) }]);
+    const view = render(<DocumentsPanel applicationId={id} />);
+    view.rerender(<DocumentsPanel applicationId={nextId} />);
+    expect(await screen.findByText('current-application.pdf')).toBeTruthy();
+    await act(async () => { finish([{ id: 'old-doc', application_id: id, filename: 'previous-private.pdf', purpose: 'kyc', status: 'verified', byte_size: 100, sha256: 'b'.repeat(64) }]); });
+    expect(screen.getByText('current-application.pdf')).toBeTruthy();
+    expect(screen.queryByText('previous-private.pdf')).toBeNull();
+  });
+  it('selects an available document purpose for an approved application', async () => {
+    registry.application = { ...app, status: 'approved', approval_tx_hash: tx };
+    render(<DocumentsPanel />);
+    expect((screen.getByLabelText('Document purpose') as HTMLSelectElement).value).toBe('invoice');
+    expect(screen.getByLabelText('On-chain invoice ID')).toBeTruthy();
+    await screen.findByText('No documents were returned for this view.');
+  });
+  it('distinguishes application list failure from a confirmed empty result and recovers on refresh', async () => {
+    ledger.role = 'manager'; registry.isManager = true;
+    vi.mocked(registry.request).mockRejectedValueOnce(new Error('Application service unavailable.'));
+    render(<Applications />);
+    expect(screen.getByText('Loading private applications…')).toBeTruthy();
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Application service unavailable.');
+    expect(screen.queryByText('No applications match this status.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh applications' }));
+    expect(await screen.findByText('No applications match this status.')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
   it('submits fictional SME details without accepting a client-supplied wallet owner', async () => {
     render(<Registration initialKind="sme" />);
     fireEvent.change(screen.getByLabelText('Registered company name'), { target: { value: 'Fictional SME' } });

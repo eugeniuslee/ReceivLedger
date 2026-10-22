@@ -89,11 +89,12 @@ export function LedgerApp() {
   return <div className="app">
     <aside className="side">
       <div className="logo"><i>R</i><span>ReceivLedger</span></div>
-      <nav aria-label="Main navigation">{navigation.map(item => <button key={item.id} className={`nav${page === item.id ? ' on' : ''}`} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>
+      <nav className="primary-navigation" aria-label="Main navigation">{navigation.map(item => <button key={item.id} className={`nav${page === item.id ? ' on' : ''}`} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>
         <span aria-hidden="true">{item.icon}</span>{item.title}
       </button>)}</nav>
-      <nav className="support-navigation" aria-label="Support navigation">{SUPPORT_PAGES.map(item => <button key={item.id} className={`nav${page === item.id ? ' on' : ''}`} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><span aria-hidden="true">{item.icon}</span>{item.title}</button>)}</nav>
+      <div className="side-footer"><nav className="support-navigation" aria-label="Support navigation">{SUPPORT_PAGES.map(item => <button key={item.id} className={`nav${page === item.id ? ' on' : ''}`} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><span aria-hidden="true">{item.icon}</span>{item.title}</button>)}</nav>
       <div className="side-note">Ethereum Sepolia · University prototype</div>
+      </div>
     </aside>
     <main className="main">
       <header className="top">
