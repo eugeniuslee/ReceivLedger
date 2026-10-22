@@ -1,5 +1,6 @@
 import { Contract, type ContractRunner, type ContractTransactionReceipt, type Provider } from 'ethers';
 import { RECEIVLEDGER_ABI } from './abi';
+import type { FinancialSnapshot } from '../finance/models';
 
 export type InvoiceStatus = 'Submitted' | 'Approved' | 'Financed' | 'Rejected' | 'Repaid' | 'Unknown';
 export type InvoiceAction = 'approve' | 'finance' | 'repay' | null;
@@ -312,10 +313,30 @@ export class ChainLedger {
     return BigInt(await this.contract.getFunction('totalFundSize')());
   }
 
-  async readInvoices(ids: bigint[]): Promise<ChainInvoice[]> {
+  async readFinancialSnapshot(account: string): Promise<FinancialSnapshot> {
+    const provider = this.contract.runner?.provider;
+    if (!provider) throw new Error('A read-only Sepolia provider is required for financial reporting.');
+    const block = await provider.getBlock('latest');
+    if (!block) throw new Error('Latest Sepolia block is unavailable.');
+    const atBlock = { blockTag: block.number };
+    const [totalSupply, connectedBalance, totalFundSize, availableFunds, count, maxPayerExposure, maxMaturityDays] = await Promise.all([
+      this.contract.getFunction('totalSupply')(atBlock), this.contract.getFunction('balanceOf')(account, atBlock),
+      this.contract.getFunction('totalFundSize')(atBlock), this.contract.getFunction('availableFunds')(atBlock),
+      this.contract.getFunction('invoiceCount')(atBlock), this.contract.getFunction('getMaxPayerExposure')(atBlock),
+      this.contract.getFunction('MAX_MATURITY_DAYS')(atBlock),
+    ]);
+    const invoiceCount = BigInt(count);
+    if (invoiceCount > 10000n) throw new Error('Financial reporting requires pagination for more than 10,000 invoices. No partial portfolio is shown.');
+    const invoices = await this.readInvoices(Array.from({ length: Number(invoiceCount) }, (_, i) => BigInt(i + 1)), block.number);
+    return { blockNumber: block.number, blockTimestamp: BigInt(block.timestamp), totalSupply: BigInt(totalSupply),
+      connectedBalance: BigInt(connectedBalance), totalFundSize: BigInt(totalFundSize), availableFunds: BigInt(availableFunds),
+      maxPayerExposure: BigInt(maxPayerExposure), maxMaturityDays: BigInt(maxMaturityDays), invoices };
+  }
+
+  async readInvoices(ids: bigint[], blockTag?: number): Promise<ChainInvoice[]> {
     const invoices: ChainInvoice[] = [];
     for (let index = 0; index < ids.length; index += 10) {
-      const batch = await Promise.all(ids.slice(index, index + 10).map(async id => mapInvoiceRecord(await this.contract.getFunction('invoices')(id))));
+      const batch = await Promise.all(ids.slice(index, index + 10).map(async id => mapInvoiceRecord(await this.contract.getFunction('invoices')(id, ...(blockTag === undefined ? [] : [{ blockTag }])))));
       invoices.push(...batch);
     }
     return invoices;

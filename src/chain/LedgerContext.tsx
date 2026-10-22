@@ -30,6 +30,7 @@ interface LedgerContextValue {
   connectionNotice: string | null;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
+  signWalletMessage: (message: string) => Promise<string>;
   refresh: (force?: boolean) => Promise<void>;
   refreshEvents: (force?: boolean) => Promise<void>;
   ledger: ChainLedger | null;
@@ -441,6 +442,19 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     }
   }, [injected, networkOk, account, role, snapshot, provider, refresh, refreshEvents]);
 
+  const signWalletMessage = useCallback(async (message: string) => {
+    if (!provider || !account || !networkOk || transactionPending) throw new Error('Connect the intended wallet on Sepolia before signing in.');
+    const version = walletVersion.current;
+    const [accounts, chainId] = await Promise.all([
+      provider.send('eth_accounts', []) as Promise<string[]>, provider.send('eth_chainId', []) as Promise<string>,
+    ]);
+    if (accounts[0]?.toLowerCase() !== account.toLowerCase() || Number(BigInt(chainId)) !== SEPOLIA_CHAIN_ID) throw new Error('Wallet or network changed. Reconnect before signing in.');
+    const signer = await provider.getSigner(account);
+    const signature = await signer.signMessage(message);
+    if (!isCurrentWalletRequest(version, walletVersion.current, account, accountRef.current)) throw new Error('Wallet changed during sign-in. Sign in with the selected wallet.');
+    return signature;
+  }, [provider, account, networkOk, transactionPending]);
+
   const value: LedgerContextValue = {
     account,
     role,
@@ -461,6 +475,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     connectionNotice,
     connect,
     disconnect,
+    signWalletMessage,
     refresh,
     refreshEvents,
     ledger,

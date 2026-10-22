@@ -3,6 +3,7 @@ import { useLedger } from '../chain/LedgerContext';
 import { RECEIVLEDGER_ADDRESS, SEPOLIA_CHAIN_ID, SEPOLIA_EXPLORER } from '../chain/abi';
 import { walletIdentity } from '../chain/navigation';
 import { formatInteger } from '../chain/presentation';
+import { useRegistry } from '../registration/RegistryContext';
 
 function ContractDetails() {
   return <dl className="detail-list">
@@ -14,6 +15,7 @@ function ContractDetails() {
 
 export function MyProfile() {
   const { account, role, snapshot } = useLedger();
+  const { registeredName, application, authenticated, configured, signIn, signOut, busy, error } = useRegistry();
   const identity = walletIdentity(role);
   if (!account || !role) return <div className="empty-state">Connect your wallet on Sepolia to view its profile.</div>;
   return <section className="section-block account-page">
@@ -21,15 +23,20 @@ export function MyProfile() {
     <dl className="detail-list">
       <div><dt>Wallet address</dt><dd className="mono selectable-address">{account}</dd></div>
       <div><dt>Current role</dt><dd>{identity.name}</dd></div>
-      <div><dt>Registered name</dt><dd>No registration profile is connected yet.</dd></div>
+      <div><dt>Registered name</dt><dd>{registeredName ?? 'No registration profile is connected yet.'}</dd></div>
+      <div><dt>Private session</dt><dd>{authenticated ? 'Signed in with this wallet' : 'Not signed in'}</dd></div>
+      {application && <div><dt>Application</dt><dd>{application.kind} · {application.status}{application.kind === 'sme' ? ' (off-chain)' : ''}</dd></div>}
       {snapshot && 'connectedBalance' in snapshot && <div><dt>RLU holdings</dt><dd>{formatInteger(snapshot.connectedBalance)} RLU</dd></div>}
     </dl>
-    <p className="footnote">This view describes public blockchain evidence. Connecting a wallet does not verify a person's identity or a company. Names, applications and private documents will require authenticated registration.</p>
+    {configured && <button className="btn o" disabled={busy} onClick={() => void (authenticated ? signOut() : signIn())}>{authenticated ? 'Sign out of private profile' : 'Sign in for private profile'}</button>}
+    {error && <p className="inline-error" role="alert">{error}</p>}
+    <p className="footnote">Connecting a wallet does not verify a person's identity or a company. Registration and document decisions are private off-chain records; contract permissions remain separate.</p>
   </section>;
 }
 
 export function Settings({ rememberPage, onRememberPage }: { rememberPage: boolean; onRememberPage: (value: boolean) => boolean }) {
   const { account, walletAvailable, walletChecking, transactionPending, disconnect, connect } = useLedger();
+  const { signOut } = useRegistry();
   const [message, setMessage] = useState('');
   return <div className="account-page">
     <section className="section-block"><h2>Browser preferences</h2>
@@ -41,7 +48,7 @@ export function Settings({ rememberPage, onRememberPage }: { rememberPage: boole
       {message && <p className="support-copy" role="status">{message}</p>}
     </section>
     <section className="section-block"><h2>Wallet connection</h2><p className="support-copy">Manage the connection to this browser tab. You can also remove this site in MetaMask's permissions.</p>
-      <button className="btn o" disabled={!walletAvailable || walletChecking || transactionPending} onClick={() => void (account ? disconnect() : connect())}>{account ? 'Disconnect wallet' : 'Connect wallet'}</button>
+      <button className="btn o" disabled={!walletAvailable || walletChecking || transactionPending} onClick={() => { if (account) { void disconnect(); void signOut(); } else void connect(); }}>{account ? 'Disconnect wallet' : 'Connect wallet'}</button>
     </section>
     <section className="section-block"><h2>Blockchain configuration</h2><ContractDetails /><p className="footnote">This prototype uses the existing deployed contract. These values cannot be changed from Settings.</p></section>
   </div>;
@@ -54,7 +61,7 @@ export function Help() {
       <details className="help-item"><summary>My records are loading or look outdated</summary><p>Use Refresh blockchain above the current page. A first visit can take longer while historical events are indexed. Check the displayed RPC error, confirm Sepolia is selected, and retry. Wallet role and invoice records are read from the contract.</p></details>
       <details className="help-item"><summary>Why is my investor account inactive?</summary><p>The wallet is no longer approved to transfer RLU. Existing holdings and history remain visible. The contract has no automatic redemption or token burn when approval is revoked.</p></details>
       <details className="help-item"><summary>Check a transaction</summary><p>Open Transaction history or My history and follow its Sepolia Etherscan link. A cancelled wallet prompt is not a confirmed transaction. Never approve a prompt you did not initiate.</p></details>
-      <details className="help-item"><summary>Invoice wallets and registration</summary><p>The invoice-wallet view comes from invoices stored for that wallet. It does not verify a company. Authenticated registration and private document review are not configured in this stage.</p></details>
+      <details className="help-item"><summary>Invoice wallets and registration</summary><p>The invoice-wallet view comes from invoices stored for that wallet. Use Registration to sign in and apply, and Documents to upload fictional PDFs. The manager's SME and document verification decisions are off-chain and do not change contract permissions.</p></details>
       <details className="help-item"><summary>Where can I get support?</summary><p>No project support contact has been configured. For wallet troubleshooting, use the official <a className="tx-link" href="https://support.metamask.io/" target="_blank" rel="noreferrer">MetaMask Help Center</a>. Describe the page, error and browser when reporting an issue to your project administrator; omit personal documents and credentials.</p></details>
     </section>
   </div>;
@@ -65,5 +72,5 @@ export function About() {
     <p>ReceiveLedger demonstrates a tokenised receivables financing fund, with role-specific tools for the fund manager, investors and invoice-submitting wallets.</p>
     <p>The manager approves investors and records invoice financing and repayments. Approved investors can hold and transfer RLU. Invoice wallets can follow their submitted invoices through the on-chain lifecycle.</p>
     <ContractDetails />
-  </section><section className="section-block"><h2>What the prototype represents</h2><p>Blockchain balances, invoice records and confirmed transaction hashes come from Sepolia. Fund capital and repayments are simulated SGD accounting. No SGD/ETH subscriptions, financing payments, redemption, dividends or trading are implemented. RLU has no real monetary value.</p><p className="footnote">Blockchain records are public. Personal views are a navigation convenience, not private storage or proof of identity. Private registration and document review require a separately configured authentication and storage service.</p></section></div>;
+  </section><section className="section-block"><h2>What the prototype represents</h2><p>Blockchain balances, invoice records and confirmed transaction hashes come from Sepolia. Fund capital and repayments are simulated SGD accounting. No SGD/ETH subscriptions, financing payments, redemption, dividends or trading are implemented. RLU has no real monetary value.</p><p className="footnote">Blockchain records are public. Registration and document records use a separately configured private Supabase service. Fictional KYC and company verification are demonstration review workflows, not real identity checks or new Solidity permissions.</p></section></div>;
 }

@@ -2,7 +2,7 @@
 
 ## Current implementation
 
-Batch 1 is complete and the user reports a GitHub repository and deployed Vercel site. Batch 2 Stage A is now implemented locally; Stage B/C stop at the missing Supabase configuration. See `BATCH2.md` for the current changes, security design and setup dependency. The current workspace still has no `.git` directory. Do not push, deploy or change cloud resources without approval, and do not begin Batch 3.
+Batch 1 is complete and the user reports a GitHub repository and deployed Vercel site. Batch 2 Stages A/B/C have local implementation; hosted Supabase activation and live acceptance checks are pending. See `BATCH2.md` and `SUPABASE_SETUP.md`. Batch 3 financial modelling/reporting is now implemented locally on those same development files; see `BATCH3.md` for formulas, scope, files and manual checks. A new independent local Git repository was initialized on `feat/batch2-supabase` because this workspace had no Git metadata; it has no remote, commits or production history. Reconcile with the real GitHub checkout before any push. Do not push, deploy or change cloud resources without approval.
 
 The running application reads the deployed Sepolia contract, rather than the retained demo ledger. Fund capital, financing and repayment are simulated SGD accounting recorded on-chain; they do not transfer investment proceeds or financing payments. RLU has 0 decimals.
 
@@ -28,10 +28,10 @@ Wallet changes invalidate pending data requests. Role checks and transaction gua
 
 ## Verification and deployment
 
-The latest Stage A agent verification passed TypeScript, 69 tests and the production build. The user reports successful Batch 1 MetaMask tests. Stage A visual/browser and real-wallet checks remain manual; no connected browser was available to the agent. These checks do not establish that the hosted URL has the local changes.
+Latest local verification passed TypeScript, Deno Edge type checking, 177 tests across 14 files and the production build. The Batch 3 suite adds 57 tests for financial models, reporting reads and wallet/role isolation to the 120-test Batch 2 baseline; see `BATCH3.md`. Tests include actual PostgreSQL migration/RLS execution in an isolated in-memory test engine. Hosted authentication, storage, real-wallet flows and browser/mobile visual acceptance are still unverified. These checks do not establish that the hosted URL has the local changes.
 
-Use the commands and deployment settings in `../README.md`. No environment variables or private keys are needed. Keep the GitHub repository private and review staged files before pushing. Repository creation, pushing and deployment each require explicit approval. Once connected, Vercel's Git integration can automatically deploy later pushes.
+Use the commands and deployment settings in `../README.md`. Existing blockchain features need no application secrets. Registration requires browser publishable configuration plus the approved SQL/Edge deployment described in `SUPABASE_SETUP.md`; no privileged server key may enter the frontend. Keep the GitHub repository private and review files before pushing. Pushing and deployment require explicit approval. Once connected, Vercel's Git integration can automatically deploy later pushes.
 
-Do not execute Sepolia transactions, change the contract address, redeploy Solidity or implement Batch 3. Stage B/C require the user's backend setup before implementation continues. Historical wallet balances are observations only; read current state from the contract.
+Do not execute Sepolia transactions, change the contract address or redeploy Solidity. Batch 3 scenarios do not change full-face financing, introduce earned fees or implement redemption/distributions. Hosted migrations, function/security configuration, live validation and deployment require the user's configuration or authorization. Historical wallet balances are observations only; read current state from the contract.
 
 `EXPORT_REPORT.md` records the original demo export and is historical, not a description of the current app.

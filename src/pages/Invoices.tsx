@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLedger } from '../chain/LedgerContext';
 import { invoiceActionForStatus, type ChainLedger } from '../chain/chainLedger';
-import { formatDate, formatMoney, shortAddress } from '../chain/presentation';
+import { formatMoney } from '../chain/presentation';
+import { WalletName } from '../components/WalletName';
+import { useFinance } from '../finance/FinanceContext';
+import { maturityState } from '../finance/models';
+import { financialDate } from '../finance/presentation';
+import { InvoiceAssessment } from '../components/FinancialModels';
+import { InvoiceTimeline } from '../components/InvoiceTimeline';
 
 export function Invoices() {
   const { account, role, networkOk, snapshot, loading, transactionPending, ledger, runTransaction } = useLedger();
+  const { now } = useFinance();
   const [payer, setPayer] = useState('');
   const [amount, setAmount] = useState('');
   const [maturity, setMaturity] = useState('');
@@ -15,7 +22,7 @@ export function Invoices() {
   const [exposureLoading, setExposureLoading] = useState(false);
   const [exposureError, setExposureError] = useState('');
   const roleInvoices = snapshot && (snapshot.role === 'manager' || snapshot.role === 'sme') ? snapshot.invoices : [];
-  const invoices = useMemo(() => roleInvoices.filter(invoice => filter === 'All' || invoice.status === filter).slice().reverse(), [roleInvoices, filter]);
+  const invoices = useMemo(() => roleInvoices.filter(invoice => filter === 'All' || (filter === 'Overdue' ? maturityState(invoice, now).overdue : invoice.status === filter)).slice().reverse(), [roleInvoices, filter, now]);
   const selectedInvoice = selectedId === null ? undefined : roleInvoices.find(invoice => invoice.id === selectedId);
   const selectedAction = selectedInvoice ? invoiceActionForStatus(selectedInvoice.status) : null;
 
@@ -90,42 +97,47 @@ export function Invoices() {
     <section className="section-block">
       <div className="section-heading table-heading">
         <div><span className="eyebrow">Deployed contract</span><h2>Invoices</h2></div>
-        <label className="filter-label">Status<select value={filter} onChange={event => setFilter(event.target.value)}>{['All', 'Submitted', 'Approved', 'Financed', 'Rejected', 'Repaid'].map(status => <option key={status}>{status}</option>)}</select></label>
+        <label className="filter-label">Status<select value={filter} onChange={event => setFilter(event.target.value)}>{['All', 'Submitted', 'Approved', 'Financed', 'Overdue', 'Rejected', 'Repaid'].map(status => <option key={status}>{status}</option>)}</select></label>
       </div>
-      {invoices.length ? <div className="table-scroll"><table><thead><tr><th>ID</th><th>SME wallet</th><th>Payer</th><th>Amount</th><th>Maturity</th><th>Status</th><th>Rejection reason</th><th>Action</th></tr></thead>
+      <div className="status-breakdown invoice-breakdown">{['Submitted', 'Approved', 'Financed', 'Overdue', 'Repaid'].map(status => <div key={status}><span>{status}{status === 'Overdue' ? ' (within Financed)' : ''}</span><strong>{roleInvoices.filter(row => status === 'Overdue' ? maturityState(row, now).overdue : row.status === status).length}</strong></div>)}</div>
+      <p className="support-copy">Expected payer date uses the invoice's stored maturity, displayed in Singapore time. Overdue applies only to still-Financed invoices; passing maturity never records a repayment. Countdown uses the device clock.</p>
+      {invoices.length ? <div className="table-scroll"><table><thead><tr><th>ID</th><th>SME wallet</th><th>Payer</th><th>Amount</th><th>Expected payer date (SGT)</th><th>Status / timing</th><th>Rejection reason</th><th>Action</th></tr></thead>
         <tbody>{invoices.map(invoice => <tr key={invoice.id.toString()}>
-          <td>{role === 'manager' ? <button className="invoice-id" onClick={() => { setSelectedId(invoice.id); setFormError(''); }}>#{invoice.id.toString()}</button> : `#${invoice.id.toString()}`}</td><td className="mono" title={invoice.sme}>{shortAddress(invoice.sme)}</td><td>{invoice.payer}</td><td>{formatMoney(invoice.amount)}</td><td>{formatDate(invoice.maturity)}</td>
-          <td><span className={`status ${invoice.status.toLowerCase()}`}>{invoice.status}</span></td><td>{invoice.rejectionReason || '—'}</td>
-          <td>{role === 'manager' ? <button className="btn small outline" onClick={() => { setSelectedId(invoice.id); setFormError(''); }}>Review</button> : <span className="sub">—</span>}
+          <td><button className="invoice-id" onClick={() => { setSelectedId(invoice.id); setFormError(''); }}>#{invoice.id.toString()}</button></td><td><WalletName address={invoice.sme} /></td><td>{invoice.payer}</td><td>{formatMoney(invoice.amount)}</td><td>{financialDate(invoice.maturity)}</td>
+          <td><span className={`status ${invoice.status.toLowerCase()}`}>{invoice.status}</span><small className={`timing-label${maturityState(invoice, now).overdue ? ' late' : ''}`}>{maturityState(invoice, now).label}</small></td><td>{invoice.rejectionReason || '—'}</td>
+          <td><button className="btn small outline" onClick={() => { setSelectedId(invoice.id); setFormError(''); }}>{role === 'manager' ? 'Review' : 'View details'}</button>
           </td>
         </tr>)}</tbody>
       </table></div> : <div className="empty-state compact">{role === 'sme' ? 'No invoices submitted by this wallet were found in contract mappings.' : role === 'provisional' ? 'No invoices are currently mapped to this wallet.' : 'No invoices match this status.'}</div>}
       {formError && <p className="inline-error" role="alert">{formError}</p>}
       <p className="footnote">Finance and repayment update simulated contract accounting only. No SGD or ETH is transferred. A finance attempt may succeed as a transaction while the contract changes the invoice to Rejected; the row will show the recorded reason.</p>
     </section>
-    {role === 'manager' && selectedInvoice && snapshot?.role === 'manager' && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setSelectedId(null); }}>
+    {(role === 'manager' || role === 'sme') && selectedInvoice && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setSelectedId(null); }}>
       <section className="invoice-modal" role="dialog" aria-modal="true" aria-labelledby="invoice-modal-title">
         <div className="section-heading"><div><span className="eyebrow">On-chain invoice record</span><h2 id="invoice-modal-title">Invoice #{selectedInvoice.id.toString()}</h2></div><button className="btn outline" onClick={() => setSelectedId(null)} aria-label="Close invoice details">Close</button></div>
         <dl className="detail-list">
           <div><dt>Invoice ID</dt><dd>#{selectedInvoice.id.toString()}</dd></div>
-          <div><dt>SME wallet</dt><dd className="mono">{selectedInvoice.sme}</dd></div>
+          <div><dt>SME wallet</dt><dd><WalletName address={selectedInvoice.sme} full /></dd></div>
           <div><dt>Payer name</dt><dd>{selectedInvoice.payer}</dd></div>
           <div><dt>Invoice amount</dt><dd>{formatMoney(selectedInvoice.amount)}</dd></div>
-          <div><dt>Maturity date</dt><dd>{formatDate(selectedInvoice.maturity)}</dd></div>
+          <div><dt>Expected payer date</dt><dd>{financialDate(selectedInvoice.maturity)} SGT</dd></div>
+          <div><dt>Repayment timing</dt><dd>{maturityState(selectedInvoice, now).label}</dd></div>
           <div><dt>Current status</dt><dd><span className={`status ${selectedInvoice.status.toLowerCase()}`}>{selectedInvoice.status}</span></dd></div>
           <div><dt>Rejection reason</dt><dd>{selectedInvoice.rejectionReason || '—'}</dd></div>
-          <div><dt>Available funds</dt><dd>{formatMoney(snapshot.availableFunds)}</dd></div>
-          <div><dt>Payer exposure</dt><dd>{exposureLoading ? 'Loading…' : payerExposure?.payer === selectedInvoice.payer ? `${formatMoney(payerExposure.exposure)} of ${formatMoney(payerExposure.maximum)}` : '—'}</dd></div>
+          {snapshot?.role === 'manager' && <><div><dt>Available funds</dt><dd>{formatMoney(snapshot.availableFunds)}</dd></div>
+          <div><dt>Payer exposure</dt><dd>{exposureLoading ? 'Loading…' : payerExposure?.payer === selectedInvoice.payer ? `${formatMoney(payerExposure.exposure)} of ${formatMoney(payerExposure.maximum)}` : '—'}</dd></div></>}
         </dl>
+        <InvoiceTimeline invoiceId={selectedInvoice.id} />
+        {(selectedInvoice.status === 'Submitted' || selectedInvoice.status === 'Approved') && <InvoiceAssessment key={selectedInvoice.id.toString()} invoice={selectedInvoice} />}
         {exposureError && <p className="inline-error" role="alert">Payer exposure unavailable: {exposureError}</p>}
         {formError && <p className="inline-error" role="alert">{formError}</p>}
-        <div className="modal-actions">
+        {role === 'manager' && <div className="modal-actions">
           {selectedAction === 'approve' && <button className="btn" disabled={transactionPending} onClick={() => void act(ledger => ledger.approveInvoice(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : 'Approve invoice'}</button>}
-          {selectedAction === 'finance' && <button className="btn" disabled={transactionPending} onClick={() => void act(ledger => ledger.financeInvoice(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : 'Finance invoice'}</button>}
+          {selectedAction === 'finance' && <button className="btn" disabled={transactionPending} onClick={() => void act(ledger => ledger.financeInvoice(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : `Finance full ${formatMoney(selectedInvoice.amount)} on-chain`}</button>}
           {selectedAction === 'repay' && <button className="btn" disabled={transactionPending} onClick={() => void act(ledger => ledger.recordRepayment(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : 'Record repayment'}</button>}
           {!selectedAction && <span className="sub">Read-only invoice state</span>}
-        </div>
-        <p className="footnote">No invoice document is stored by this contract. Financing changes simulated accounting and does not transfer SGD or ETH.</p>
+        </div>}
+        <p className="footnote">The contract stores no PDF. Open Documents to review private fictional PDFs linked to this invoice ID. Financing changes simulated accounting and does not transfer SGD or ETH.</p>
       </section>
     </div>}
   </>;

@@ -1,0 +1,9 @@
+project_id = "receivledger"
+
+[auth.web3.ethereum]
+enabled = true
+
+# The gateway's legacy JWT verifier does not support all new signing keys.
+# The handler ALWAYS validates the user token with Supabase Auth and current_wallet().
+[functions.registry]
+verify_jwt = false

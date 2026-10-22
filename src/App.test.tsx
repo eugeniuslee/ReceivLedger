@@ -22,7 +22,7 @@ beforeEach(() => {
     account: walletA, role: 'manager', networkOk: true, walletAvailable: true, walletChecking: false,
     isManager: true, isInvestor: false, isSme: false, snapshot: null, events: [], eventIndexComplete: true,
     loading: false, eventsLoading: false, transactionPending: false, error: null, eventsError: null, connectionNotice: null,
-    connect: vi.fn(), disconnect: vi.fn(), refresh: vi.fn().mockResolvedValue(undefined), refreshEvents: vi.fn().mockResolvedValue(undefined),
+    connect: vi.fn(), disconnect: vi.fn(), signWalletMessage: vi.fn(), refresh: vi.fn().mockResolvedValue(undefined), refreshEvents: vi.fn().mockResolvedValue(undefined),
     ledger: null, runTransaction: vi.fn(),
   };
   vi.mocked(useLedger).mockImplementation(() => wallet);
@@ -32,6 +32,20 @@ afterEach(cleanup);
 function openProfileMenu() { fireEvent.click(screen.getByRole('button', { name: /^Account:/ })); }
 
 describe('Stage A wallet navigation and account controls', () => {
+  it('closes manager financial reporting when switching to an investor and rejects saved report access', () => {
+    const view = render(<LedgerApp />);
+    fireEvent.click(screen.getByRole('button', { name: /Financial reports/ }));
+    expect(screen.getByRole('heading', { name: 'Fund financial reporting' })).toBeTruthy();
+    wallet = { ...wallet, account: walletB, role: 'investor' };
+    view.rerender(<LedgerApp />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Home');
+    expect(screen.queryByRole('button', { name: /Financial reports/ })).toBeNull();
+    view.unmount();
+    window.sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify({ account: walletB, page: 'reports' }));
+    render(<LedgerApp />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Home');
+    expect(screen.queryByRole('heading', { name: 'Fund financial reporting' })).toBeNull();
+  });
   it.each<WalletRole>(['manager', 'investor', 'inactiveInvestor', 'sme', 'provisional'])('uses Home for %s', role => {
     wallet.role = role;
     render(<LedgerApp />);

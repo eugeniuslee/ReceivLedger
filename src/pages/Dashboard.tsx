@@ -1,6 +1,8 @@
 import { useLedger } from '../chain/LedgerContext';
 import type { ChainInvoice, FundSnapshot, InactiveInvestorSnapshot, InvestorSnapshot, ProvisionalSnapshot, SmeSnapshot } from '../chain/chainLedger';
 import { formatDate, formatInteger, formatMoney, shortAddress } from '../chain/presentation';
+import { WalletName } from '../components/WalletName';
+import { InvestorReporting, SmeFinancingAssessment } from './Reports';
 
 export function Dashboard() {
   const { snapshot, loading, networkOk } = useLedger();
@@ -50,6 +52,7 @@ function InvestorDashboard({ snapshot }: { snapshot: InvestorSnapshot }) {
       <div className="metric"><span>Investor approval</span><strong>{snapshot.approved ? 'Approved' : 'Not approved'}</strong><small>Read from approvedInvestors(your wallet)</small></div>
     </section>
     <section className="section-block"><h3>Investor account</h3><p className="support-copy">Use the Transfer RLU page to send tokens from this wallet. Transfer rules require both wallets to be approved investors.</p></section>
+    <InvestorReporting />
   </>;
 }
 
@@ -63,13 +66,14 @@ function SmeDashboard({ snapshot }: { snapshot: SmeSnapshot }) {
     </section>
     <InvoiceSummary invoices={snapshot.invoices.slice().reverse().slice(0, 8)} title="Your invoice status" empty="No invoices submitted by this wallet were found in the history window." />
     <p className="footnote">Invoice ownership is matched to the SME address stored in the contract; this does not verify a real-world identity.</p>
+    <SmeFinancingAssessment />
   </>;
 }
 
 function InvoiceSummary({ invoices, title, empty }: { invoices: ChainInvoice[]; title: string; empty: string }) {
   return <section className="section-block invoice-preview"><h3>{title}</h3>
     {invoices.length ? <div className="table-scroll"><table><thead><tr><th>ID</th><th>Payer</th><th>Amount</th><th>Maturity</th><th>Status</th><th>SME wallet</th></tr></thead>
-      <tbody>{invoices.map(invoice => <tr key={invoice.id.toString()}><td>#{invoice.id.toString()}</td><td>{invoice.payer}</td><td>{formatMoney(invoice.amount)}</td><td>{formatDate(invoice.maturity)}</td><td><span className={`status ${invoice.status.toLowerCase()}`}>{invoice.status}</span></td><td className="mono">{shortAddress(invoice.sme)}</td></tr>)}</tbody>
+      <tbody>{invoices.map(invoice => <tr key={invoice.id.toString()}><td>#{invoice.id.toString()}</td><td>{invoice.payer}</td><td>{formatMoney(invoice.amount)}</td><td>{formatDate(invoice.maturity)}</td><td><span className={`status ${invoice.status.toLowerCase()}`}>{invoice.status}</span></td><td><WalletName address={invoice.sme} /></td></tr>)}</tbody>
     </table></div> : <div className="empty-state compact">{empty}</div>}
   </section>;
 }
@@ -83,6 +87,7 @@ function InactiveInvestorDashboard({ snapshot }: { snapshot: InactiveInvestorSna
     <section className="section-block"><h3>Fund units remain in this wallet</h3>
       <p className="support-copy">Revoking investor approval does not automatically redeem, transfer or burn RLU. The contract does not provide an investor redemption function.</p>
     </section>
+    <InvestorReporting />
   </>;
 }
 

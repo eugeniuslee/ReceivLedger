@@ -3,9 +3,12 @@ import { SEPOLIA_EXPLORER } from '../chain/abi';
 import { groupEventsByTransaction } from '../chain/activity';
 import { useLedger } from '../chain/LedgerContext';
 import { formatTimestamp, shortAddress } from '../chain/presentation';
+import { useRegistry } from '../registration/RegistryContext';
 
 export function History() {
   const { account, events, eventsLoading, eventsError, networkOk, role, refreshEvents } = useLedger();
+  const { displayName } = useRegistry();
+  const addressLabel = (address: string) => { const name = displayName(address); return name ? `${name} (${shortAddress(address)})` : shortAddress(address); };
   const [eventType, setEventType] = useState('All');
   const activities = useMemo(() => role ? groupEventsByTransaction(events, role, account ?? undefined) : [], [events, role, account]);
   const types = useMemo(() => ['All', ...new Set(events.map(event => event.name))], [events]);
@@ -26,8 +29,8 @@ export function History() {
     {eventsLoading && !events.length ? <div className="empty-state">Querying Sepolia logs…</div> : visibleActivities.length ? <div className="table-scroll"><table><thead><tr><th>Time</th><th>Activity</th><th>Details</th><th>Status</th><th>Block</th><th>Transaction</th></tr></thead>
       <tbody>{visibleActivities.map(activity => <tr key={activity.transactionHash}>
         <td>{formatTimestamp(activity.timestamp)}</td><td><span className="event-name">{activity.title}</span></td>
-        <td>{activity.details.replace(/0x[a-fA-F0-9]{40}/g, address => shortAddress(address))}<details className="raw-events"><summary>View {activity.events.length} underlying event{activity.events.length === 1 ? '' : 's'}</summary>
-          <ul>{activity.events.map(event => <li key={`${event.logIndex}-${event.name}`}><b>{event.name}</b> · {event.detail.replace(/0x[a-fA-F0-9]{40}/g, address => shortAddress(address))}{event.amount !== undefined ? ` · ${event.amount.toString()}` : ''}</li>)}</ul>
+        <td>{activity.details.replace(/0x[a-fA-F0-9]{40}/g, addressLabel)}<details className="raw-events"><summary>View {activity.events.length} underlying event{activity.events.length === 1 ? '' : 's'}</summary>
+          <ul>{activity.events.map(event => <li key={`${event.logIndex}-${event.name}`}><b>{event.name}</b> · {event.detail.replace(/0x[a-fA-F0-9]{40}/g, addressLabel)}{event.amount !== undefined ? ` · ${event.amount.toString()}` : ''}</li>)}</ul>
         </details></td>
         <td>Confirmed</td><td>{activity.blockNumber.toLocaleString('en-SG')}</td>
         <td><a className="mono tx-link" href={`${SEPOLIA_EXPLORER}/tx/${activity.transactionHash}`} target="_blank" rel="noreferrer" title={activity.transactionHash}>{shortAddress(activity.transactionHash)}</a></td>

@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from 'react';
 import { LedgerProvider, useLedger } from './chain/LedgerContext';
-import { canAccessPage, ROLE_PAGES, SUPPORT_PAGES, type PageId } from './chain/access';
+import { canAccessPage, navigationForRole, SUPPORT_PAGES, type PageId } from './chain/access';
 import { NAVIGATION_KEY, REMEMBER_PAGE_KEY, readNavigation, resolveWalletNavigation, walletIdentity, type NavigationState } from './chain/navigation';
 import { Dashboard } from './pages/Dashboard';
 import { History } from './pages/History';
@@ -9,6 +9,12 @@ import { Invoices } from './pages/Invoices';
 import { About, Help, MyProfile, Settings } from './pages/Account';
 import { ProfileMenu } from './components/ProfileMenu';
 import { BlockchainRefresh } from './components/BlockchainRefresh';
+import { RegistryProvider, useRegistry } from './registration/RegistryContext';
+import { Registration, RegistrationSummary, Welcome } from './pages/Registration';
+import { Applications } from './pages/Applications';
+import { Documents } from './pages/Documents';
+import { FinanceProvider } from './finance/FinanceContext';
+import { Reports } from './pages/Reports';
 
 function initialRememberPage() {
   try { return window.localStorage.getItem(REMEMBER_PAGE_KEY) !== 'false'; } catch { return true; }
@@ -21,8 +27,10 @@ function initialNavigation(): NavigationState {
 export function LedgerApp() {
   const [navigationState, setNavigationState] = useState(initialNavigation);
   const [rememberPage, setRememberPage] = useState(initialRememberPage);
+  const [registrationKind, setRegistrationKind] = useState<'investor' | 'sme'>('investor');
   const { account, role, networkOk, walletAvailable, walletChecking, eventIndexComplete, connect, loading, transactionPending, error, eventsError, connectionNotice } = useLedger();
-  const navigation = role ? ROLE_PAGES[role] : [];
+  const { registeredName, application } = useRegistry();
+  const navigation = navigationForRole(role);
   const resolved = resolveWalletNavigation(navigationState, account, role);
   const page = resolved.page;
   const pageAllowed = canAccessPage(role, page);
@@ -53,21 +61,25 @@ export function LedgerApp() {
     } catch { return false; }
   }
 
-  let content = <div className="empty-state">{loading || walletChecking ? 'Checking the connected wallet role…' : 'Connect a wallet on Sepolia to open your Home dashboard.'}</div>;
+  let content = loading || walletChecking ? <div className="empty-state">Checking the connected wallet role…</div> : <Welcome onApply={kind => { setRegistrationKind(kind); navigate('registration'); }} />;
   if (pageAllowed) {
     if (page === 'settings') content = <Settings rememberPage={rememberPage} onRememberPage={updateRememberPage} />;
     else if (page === 'help') content = <Help />;
     else if (page === 'about') content = <About />;
+    else if (page === 'registration') content = <Registration initialKind={registrationKind} />;
     else if (role) {
       if (page === 'profile') content = <MyProfile />;
-      else if (page === 'dashboard') content = <Dashboard />;
+      else if (page === 'dashboard') content = <><RegistrationSummary onNavigate={navigate} /><Dashboard /></>;
+      else if (page === 'applications') content = <Applications />;
+      else if (page === 'documents') content = <Documents />;
+      else if (page === 'reports') content = <Reports />;
       else if (page === 'invoices') content = <Invoices />;
       else if (page === 'investors') content = <Investors />;
       else if (page === 'transfer') content = <Investors investorTransferOnly />;
       else if (page === 'history') content = <History />;
     }
   }
-  const blockchainPage = ['dashboard', 'invoices', 'investors', 'transfer', 'history', 'profile'].includes(page);
+  const blockchainPage = ['dashboard', 'invoices', 'investors', 'transfer', 'history', 'profile', 'reports'].includes(page);
   const identity = walletIdentity(role);
 
   return <div className="app">
@@ -81,7 +93,7 @@ export function LedgerApp() {
     </aside>
     <main className="main">
       <header className="top">
-        <div><span className="section-kicker">Your fund workspace</span><h1>{activeTitle}</h1><span className="sub">{account ? role ? identity.name : 'Resolving wallet access…' : 'Connect your wallet to get started'}</span></div>
+        <div><span className="section-kicker">Your fund workspace</span><h1>{activeTitle}</h1><span className="sub">{account ? role ? `${registeredName ? `${registeredName} · ` : ''}${application?.kind === 'sme' && application.status === 'approved' && role === 'provisional' ? 'Verified SME (off-chain)' : identity.name}` : 'Resolving wallet access…' : 'Connect your wallet to get started'}</span></div>
         <div className="wallet-controls">
           <span className={`network-pill ${networkOk ? 'connected' : 'disconnected'}`}>{walletChecking ? 'Checking wallet…' : !walletAvailable ? 'Wallet unavailable' : !account ? 'Not connected' : networkOk ? 'Sepolia' : 'Wrong network'}</span>
           {account ? <ProfileMenu key={account.toLowerCase()} onNavigate={navigate} /> : <button className="btn" onClick={() => void connect()} disabled={!walletAvailable || walletChecking || transactionPending}>{walletChecking ? 'Checking wallet…' : 'Connect MetaMask'}</button>}
@@ -103,5 +115,5 @@ export function LedgerApp() {
 }
 
 export default function App() {
-  return <LedgerProvider><LedgerApp /></LedgerProvider>;
+  return <LedgerProvider><FinanceProvider><RegistryProvider><LedgerApp /></RegistryProvider></FinanceProvider></LedgerProvider>;
 }

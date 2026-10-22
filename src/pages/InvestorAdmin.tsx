@@ -3,6 +3,7 @@ import { isAddress } from 'ethers';
 import { useLedger } from '../chain/LedgerContext';
 import { discoverInvestorAddresses, ownershipDisplay, type InvestorAccount } from '../chain/chainLedger';
 import { formatInteger } from '../chain/presentation';
+import { WalletName } from '../components/WalletName';
 
 interface ActionNotice {
   tone: 'success' | 'error' | 'neutral';
@@ -215,7 +216,7 @@ export function InvestorAdmin() {
       {eventsLoading && <p className="sub" role="status">Updating cached investor discovery… Current rows remain visible.</p>}
       {visibleAccounts.length ? <div className="table-scroll"><table className="investor-table"><thead><tr><th>Investor wallet</th><th>Approval</th><th>RLU balance</th><th>Supply ownership</th><th>Action</th></tr></thead>
         <tbody>{visibleAccounts.map(item => <tr key={item.address} className="investor-row" tabIndex={0} onClick={() => setSelectedAddress(item.address)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedAddress(item.address); } }}>
-          <td><button className="investor-address" onClick={event => { event.stopPropagation(); setSelectedAddress(item.address); }}>{item.address}</button></td>
+          <td><button className="investor-address" onClick={event => { event.stopPropagation(); setSelectedAddress(item.address); }}><WalletName address={item.address} full /></button></td>
           <td><span className={`status ${item.approved ? 'approved' : 'rejected'}`}>{item.approved ? 'Approved' : 'Revoked / not approved'}</span></td>
           <td>{formatInteger(item.balance)} RLU</td>
           <td>{ownershipDisplay(item.balance, managerSnapshot.totalSupply, holdingsComplete) ?? 'Partial index'}</td>
