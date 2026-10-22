@@ -145,3 +145,23 @@ describe('invoice maturity and unchanged transaction arguments', () => {
     expect(wallet.runTransaction).not.toHaveBeenCalled();
   });
 });
+
+
+describe('public invoice review versus private documents', () => {
+  it('shows public invoice details, timeline and calculations without an embedded login or private request', () => {
+    const invoice = testInvoice({ status: 'Approved', amount: 500n });
+    wallet.snapshot = { role: 'manager', manager: invoice.sme, totalFundSize: 1100n, availableFunds: 1100n, invoiceCount: 1n, connectedBalance: 0n, totalSupply: 1100n, invoices: [invoice] };
+    render(<Invoices />); fireEvent.click(screen.getByRole('button', { name: '#1' }));
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByText('On-chain invoice record')).toBeTruthy();
+    expect(dialog.queryByRole('button', { name: 'Sign in with this wallet' })).toBeNull();
+    expect(dialog.queryByText('Frontend Supabase configuration unavailable')).toBeNull();
+    expect(dialog.getByRole('button', { name: 'Finance full S$500 on-chain' })).toBeTruthy();
+    fireEvent.click(dialog.getByRole('button', { name: 'View private documents' }));
+    expect((dialog.getByRole('button', { name: 'Sign in with this wallet' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(dialog.queryByLabelText('Fictional PDF')).toBeNull();
+    fireEvent.click(dialog.getByRole('button', { name: 'Hide private documents' }));
+    expect(dialog.queryByRole('button', { name: 'Sign in with this wallet' })).toBeNull();
+    expect(wallet.runTransaction).not.toHaveBeenCalled();
+  });
+});

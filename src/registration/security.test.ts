@@ -74,3 +74,15 @@ describe('server PDF validation', () => {
   });
   it('enforces the server byte limit', async () => { await expect(validatePdf(new Uint8Array(5 * 1024 * 1024 + 1))).rejects.toThrow(/5 MB/); });
 });
+
+
+describe('wallet sign-in domain separation', () => {
+  it.each(['https://receiv-ledger.vercel.app', 'https://receiv-ledger-lt5n8xuzw-eugene-dd71.vercel.app'])('binds the textual sign-in to the actual requesting origin: %s', origin => {
+    const message = createSignInMessage(applicant, origin, new Date('2026-10-22T00:00:00Z'), 'abcdef1234567890');
+    expect(message.split('\n')[0]).toBe(new URL(origin).host + ' wants you to sign in with your Ethereum account:');
+    expect(message).toContain('URI: ' + origin + '/');
+    expect(message).toContain('Chain ID: 11155111');
+    expect(message).not.toMatch(/permit|spender|approveInvestor|setApprovalForAll/i);
+    expect(message).toContain('This is not a blockchain transaction.');
+  });
+});

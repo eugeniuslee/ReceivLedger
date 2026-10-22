@@ -79,3 +79,26 @@ describe('financial reporting wallet isolation', () => {
     expect(current.data?.blockNumber).toBe(123);
   });
 });
+
+
+describe('financial refresh after confirmed wallet snapshot updates', () => {
+  it('refreshes reports across Approved, Financed and Repaid snapshots without double-counting principal', async () => {
+    const { testInvoice } = await import('./fixtures');
+    const invoice = testInvoice({ amount: 100n, status: 'Approved' });
+    read.mockResolvedValue(testSnapshot({ totalFundSize: 1100n, availableFunds: 1100n, invoices: [invoice] }));
+    const view = render(<FinanceProvider><Probe /></FinanceProvider>);
+    await waitFor(() => expect(current.data?.availableFunds).toBe(1100n));
+    const approved = { role: 'manager' as const, manager: a, totalFundSize: 1100n, availableFunds: 1100n, invoiceCount: 1n, connectedBalance: 0n, totalSupply: 1100n, invoices: [invoice] };
+    wallet = { ...wallet, snapshot: approved }; view.rerender(<FinanceProvider><Probe /></FinanceProvider>);
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+    expect(current.data?.availableFunds).toBe(1100n);
+    read.mockResolvedValue(testSnapshot({ totalFundSize: 1100n, availableFunds: 1000n, invoices: [{ ...invoice, status: 'Financed' }] }));
+    wallet = { ...wallet, snapshot: { ...approved, availableFunds: 1000n, invoices: [{ ...invoice, status: 'Financed' }] } }; view.rerender(<FinanceProvider><Probe /></FinanceProvider>);
+    await waitFor(() => expect(current.data?.availableFunds).toBe(1000n));
+    expect(current.data?.invoices[0].status).toBe('Financed');
+    read.mockResolvedValue(testSnapshot({ totalFundSize: 1100n, availableFunds: 1100n, invoices: [{ ...invoice, status: 'Repaid' }] }));
+    wallet = { ...wallet, snapshot: { ...approved, invoices: [{ ...invoice, status: 'Repaid' }] } }; view.rerender(<FinanceProvider><Probe /></FinanceProvider>);
+    await waitFor(() => expect(current.data?.invoices[0].status).toBe('Repaid'));
+    expect(current.data?.availableFunds).toBe(1100n); expect(current.data?.totalFundSize).toBe(1100n);
+  });
+});

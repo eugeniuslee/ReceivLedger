@@ -2,7 +2,11 @@
 
 React 18, TypeScript, Vite 5 and ethers v6 frontend for the deployed ReceivLedger contract. All dashboard and workflow data is read from Sepolia; this app does not use a fictional in-browser ledger.
 
-## Current local work: registration and navigation restructuring
+## Current local work: live-testing fixes
+
+Current branch: `fix/live-testing-auth-invoices`, based on fetched main `ad34f4c`. See [Live-testing fixes](docs/LIVE_TESTING_FIXES.md) for the confirmed missing manager Supabase identity, secure memory-session reuse, public invoice/private document separation, receipt-based feedback, tests and acceptance steps. The previously approved production origin is working. Changes remain uncommitted and unpublished.
+
+## Previous interface restructuring
 
 The latest local changes are on `feat/registration-ux-restructure`, based on freshly fetched GitHub main. See [Registration restructuring](docs/REGISTRATION_RESTRUCTURE.md) for the new flow, files, production CORS diagnosis, staff design and manual checks. Changes remain uncommitted and unpublished.
 

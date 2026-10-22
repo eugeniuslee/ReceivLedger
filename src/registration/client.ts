@@ -23,6 +23,10 @@ const configuration = readSupabaseConfiguration(import.meta.env.VITE_SUPABASE_UR
 export const registryClient = configuration.client;
 export const registryConfigurationError = configuration.configurationError;
 
+export class RegistryRequestError extends Error {
+  constructor(message: string, readonly status?: number) { super(message); this.name = 'RegistryRequestError'; }
+}
+
 export async function registryRequest<T>(client: SupabaseClient, token: string, input: Record<string, unknown> | FormData): Promise<T> {
   const { data, error } = await client.functions.invoke('registry', { body: input, headers: { Authorization: `Bearer ${token}` } });
   if (error) {
@@ -31,7 +35,9 @@ export async function registryRequest<T>(client: SupabaseClient, token: string, 
     if (error.name === 'FunctionsRelayError') message = 'The registration gateway could not reach the function. Ask the project owner to check its deployment and logs.';
     try { const response = error.context as Response; const payload = await response.json(); if (typeof payload.error === 'string') message = payload.error; } catch { /* preserve safe fallback */ }
     if (message === 'Origin is not allowed.') message = 'This website origin is not authorised for registration. Ask the project owner to review ALLOWED_ORIGINS.';
-    throw new Error(userFacingError(message, 'Registration request failed. Ask the project owner to check the service configuration.'));
+    const status = error.context instanceof Response ? error.context.status : undefined;
+    if (status === 401) message = 'Your private session has expired or is invalid. Sign in again with this wallet.';
+    throw new RegistryRequestError(userFacingError(message, 'Registration request failed. Ask the project owner to check the service configuration.'), status);
   }
   if (data && typeof data === 'object' && 'error' in data) throw new Error(userFacingError(String(data.error)));
   return data as T;

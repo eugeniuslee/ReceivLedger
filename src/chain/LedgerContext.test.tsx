@@ -149,3 +149,50 @@ describe('wallet provider refresh and disconnection', () => {
     interval.mockRestore();
   });
 });
+
+
+describe('confirmed transaction refresh boundary', () => {
+  function managerSnapshot(available = 1100n): RoleSnapshot { return { role: 'manager', manager: walletA, totalFundSize: 1100n, availableFunds: available, invoiceCount: 0n, invoices: [], connectedBalance: 0n, totalSupply: 1100n }; }
+  it('refreshes balances/statuses and event history only after the operation confirms', async () => {
+    calls.read.mockResolvedValue(managerSnapshot());
+    calls.classify.mockResolvedValue({ role: 'manager', manager: walletA, approved: false, balance: 0n });
+    await mountWallet();
+    const reads = calls.read.mock.calls.length; const scans = calls.events.mock.calls.length;
+    let confirm!: (receipt: { status: number }) => void;
+    const operation = vi.fn(() => new Promise<{ status: number }>(resolve => { confirm = resolve; }));
+    let pending!: Promise<{ status: number }>;
+    await act(async () => { pending = current.runTransaction('manager', operation); });
+    await waitFor(() => expect(operation).toHaveBeenCalledOnce());
+    expect(current.transactionPending).toBe(true); expect(calls.read).toHaveBeenCalledTimes(reads);
+    calls.read.mockResolvedValue(managerSnapshot(1000n));
+    await act(async () => { confirm({ status: 1 }); await pending; });
+    expect(current.snapshot?.role === 'manager' && current.snapshot.availableFunds).toBe(1000n);
+    expect(calls.read.mock.calls.length).toBeGreaterThan(reads);
+    await waitFor(() => expect(calls.events.mock.calls.length).toBeGreaterThan(scans));
+    expect(current.transactionPending).toBe(false);
+    expect(request.mock.calls.some(([input]) => ['personal_sign', 'eth_sendTransaction'].includes(input.method))).toBe(false);
+  });
+  it('does not turn a rejected operation into success or update balances', async () => {
+    calls.read.mockResolvedValue(managerSnapshot());
+    calls.classify.mockResolvedValue({ role: 'manager', manager: walletA, approved: false, balance: 0n });
+    await mountWallet(); const reads = calls.read.mock.calls.length;
+    await act(async () => { await expect(current.runTransaction('manager', async () => { throw { code: 4001, message: '{private provider JSON}' }; })).rejects.toThrow('Transaction cancelled'); });
+    expect(calls.read).toHaveBeenCalledTimes(reads); expect(current.transactionPending).toBe(false);
+    expect(current.snapshot?.role === 'manager' && current.snapshot.availableFunds).toBe(1100n);
+    expect(current.error).toContain('No confirmed action');
+  });
+});
+
+
+describe('confirmed transaction with unavailable refreshed records', () => {
+  it('retains the confirmed receipt and labels the prior snapshot stale instead of inviting a duplicate transaction', async () => {
+    calls.read.mockResolvedValue({ role: 'manager', manager: walletA, totalFundSize: 1100n, availableFunds: 1100n, invoiceCount: 0n, invoices: [], connectedBalance: 0n, totalSupply: 1100n });
+    calls.classify.mockResolvedValue({ role: 'manager', manager: walletA, approved: false, balance: 0n });
+    await mountWallet();
+    calls.read.mockRejectedValue(new Error('RPC temporarily unavailable.'));
+    await act(async () => { const receipt = await current.runTransaction('manager', async () => ({ status: 1 })); expect(receipt.status).toBe(1); });
+    expect(current.error).toContain('may be stale');
+    expect(current.snapshot?.role === 'manager' && current.snapshot.availableFunds).toBe(1100n);
+    expect(current.transactionPending).toBe(false);
+  });
+});

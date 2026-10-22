@@ -187,3 +187,15 @@ describe('SME Home capacity uses the invoice assessment policy', () => {
     expect(borrowingCapacity(invoice().sme, snapshot(), { ...defaults, annualSalesCents: 0n }).indicativeCapacityCents).toBe(0n);
   });
 });
+
+
+describe('live-testing S$500 invoice against a 10 percent payer cap', () => {
+  it('rejects the full S$500 despite S$1100 liquidity and passes the exact S$110 boundary with no other exposure', () => {
+    const fund = snapshot({ totalFundSize: 1100n, availableFunds: 1100n, maxPayerExposure: 110n });
+    const oversized = assessInvoice(invoice({ amount: 500n }), fund, now, defaults, 'low');
+    expect(oversized.contractEligible).toBe(false);
+    expect(oversized.contractReasons.join(' ')).toContain('Full face value plus existing payer exposure');
+    expect(oversized.contractReasons.join(' ')).not.toContain('exceeds available contract funds');
+    expect(assessInvoice(invoice({ amount: 110n }), fund, now, defaults, 'low').contractEligible).toBe(true);
+  });
+});

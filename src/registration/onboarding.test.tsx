@@ -229,3 +229,24 @@ describe('restructured onboarding and navigation regressions', () => {
     expect(wallet.runTransaction).not.toHaveBeenCalled();
   });
 });
+
+
+describe('manager private application access', () => {
+  it('explains the manager-only sign-in and keeps all status views available after authentication', async () => {
+    wallet.role = 'manager'; registry.authenticated = false; registry.isManager = false;
+    const rows = ['pending', 'approved', 'rejected', 'needs_info'].map((status, index) => ({ ...application, id: `10000000-0000-0000-0000-00000000000${index + 1}`, display_name: `Fictional ${status}`, status }));
+    vi.mocked(registry.request).mockResolvedValue(rows);
+    const view = render(<Applications />);
+    expect(screen.getByText(/recognised as the on-chain fund manager/)).toBeTruthy();
+    expect(registry.request).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with this wallet' }));
+    expect(registry.signIn).toHaveBeenCalledOnce();
+    registry.authenticated = true; registry.isManager = true; view.rerender(<Applications />);
+    expect(await screen.findByText('Fictional pending')).toBeTruthy();
+    for (const [button, status] of [['Approved', 'approved'], ['Rejected', 'rejected'], ['Requires more information', 'needs_info'], ['Pending', 'pending']]) {
+      fireEvent.click(screen.getByRole('button', { name: button + ' (1)' }));
+      expect(screen.getByText('Fictional ' + status)).toBeTruthy();
+    }
+    expect(registry.signIn).toHaveBeenCalledOnce(); expect(wallet.runTransaction).not.toHaveBeenCalled();
+  });
+});

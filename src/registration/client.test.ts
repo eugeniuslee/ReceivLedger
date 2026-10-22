@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
-import { registryRequest, readSupabaseConfiguration } from './client';
+import { RegistryRequestError, registryRequest, readSupabaseConfiguration } from './client';
 
 vi.mock('@supabase/supabase-js', () => ({ createClient: vi.fn() }));
 const url = 'https://configuration-test.supabase.co';
@@ -62,5 +62,14 @@ describe('registration service diagnostics', () => {
   ])('preserves a safe server diagnosis: %s', async (message, expected) => {
     const client = { functions: { invoke: vi.fn().mockResolvedValue({ data: null, error: { name: 'FunctionsHttpError', context: new Response(JSON.stringify({ error: message }), { status: 403 }) } }) } } as unknown as ReturnType<typeof createClient>;
     await expect(registryRequest(client, 'fixture-session', {})).rejects.toThrow(expected);
+  });
+});
+
+
+describe('private session expiry diagnostics', () => {
+  it('marks HTTP 401 as session expiry so the provider can clear private state', async () => {
+    const client = { functions: { invoke: vi.fn().mockResolvedValue({ data: null, error: { name: 'FunctionsHttpError', context: new Response(JSON.stringify({ error: 'Sign in with your wallet first.' }), { status: 401 }) } }) } } as unknown as ReturnType<typeof createClient>;
+    try { await registryRequest(client, 'fixture-session', { action: 'applications' }); throw new Error('Expected rejection'); }
+    catch (error) { expect(error).toBeInstanceOf(RegistryRequestError); expect((error as RegistryRequestError).status).toBe(401); expect((error as Error).message).toContain('expired or is invalid'); }
   });
 });

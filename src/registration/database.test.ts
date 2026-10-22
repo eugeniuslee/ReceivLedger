@@ -210,3 +210,17 @@ describe('actual PostgreSQL migration, grants and row-level security', () => {
     await expect(db.query("select public.rl_review_document($1,1,$2,'rejected','stale')", [doc, ids[0]])).rejects.toThrow(/changed/);
   });
 });
+
+
+describe('new Investor application visibility under real migration policies', () => {
+  it('lets the verified primary manager see a newly submitted pending application while another wallet cannot', async () => {
+    const application = await apply(1, 'investor');
+    const own = await asUser(1, () => db.query<{ status: string }>('select status from public.rl_applications where id=$1', [application.id]));
+    expect(own.rows).toEqual([{ status: 'pending' }]);
+    const managerView = await asUser(0, () => db.query<{ status: string; kind: string }>('select status,kind from public.rl_applications where id=$1', [application.id]));
+    expect(managerView.rows).toEqual([{ status: 'pending', kind: 'investor' }]);
+    const unrelated = await asUser(2, () => db.query('select id from public.rl_applications where id=$1', [application.id]));
+    expect(unrelated.rows).toEqual([]);
+    await expect(asUser(1, () => db.query("update public.rl_applications set status='approved' where id=$1", [application.id]))).rejects.toThrow(/permission denied/);
+  });
+});

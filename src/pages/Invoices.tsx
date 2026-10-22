@@ -12,6 +12,16 @@ import { InvoiceTimeline } from '../components/InvoiceTimeline';
 import { useRegistrationAccess } from '../registration/access';
 import { PrivateAccess } from '../components/PrivateAccess';
 import { DocumentsPanel } from './Documents';
+import { invoiceReceiptOutcome } from '../chain/invoiceReceipt';
+
+function InvoiceDocuments({ invoiceId }: { invoiceId: string }) {
+  const [open, setOpen] = useState(false);
+  return <section className="section-block"><h3>Private supporting documents</h3>
+    <p className="support-copy">On-chain invoice details and history above are public. Supporting PDFs require a separate private wallet session.</p>
+    <button className="btn o small" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Hide private documents' : 'View private documents'}</button>
+    {open && <PrivateAccess compact><DocumentsPanel invoiceId={invoiceId} /></PrivateAccess>}
+  </section>;
+}
 
 export function Invoices({ mode = 'workspace' }: { mode?: 'workspace' | 'list' | 'submit' }) {
   const { account, role, networkOk, snapshot, loading, transactionPending, ledger, runTransaction } = useLedger();
@@ -71,10 +81,14 @@ export function Invoices({ mode = 'workspace' }: { mode?: 'workspace' | 'list' |
     }
   }
 
-  async function act(action: (ledger: ChainLedger) => Promise<unknown>) {
+  async function act(kind: 'approve' | 'finance' | 'repay', invoiceId: bigint, action: (ledger: ChainLedger) => Promise<unknown>) {
     setFormError(''); setMessage('');
-    try { await runTransaction('manager', action); setMessage('Transaction confirmed on Sepolia. Review the updated invoice status: a financing attempt can be recorded as Rejected by the contract.'); }
-    catch (cause) { setFormError(userFacingError(cause)); }
+    try {
+      const receipt = await runTransaction('manager', action);
+      const outcome = invoiceReceiptOutcome(receipt, kind, invoiceId);
+      if (outcome.rejected) setFormError(outcome.message); else setMessage(outcome.message);
+    }
+    catch (cause) { setFormError(`${kind === 'approve' ? 'Invoice approval' : kind === 'finance' ? 'Invoice financing' : 'Repayment recording'} was not confirmed: ${userFacingError(cause)}`); }
   }
 
   useEffect(() => {
@@ -139,18 +153,22 @@ export function Invoices({ mode = 'workspace' }: { mode?: 'workspace' | 'list' |
           {snapshot?.role === 'manager' && <><div><dt>Available funds</dt><dd>{formatMoney(snapshot.availableFunds)}</dd></div>
           <div><dt>Payer exposure</dt><dd>{exposureLoading ? 'Loading…' : payerExposure?.payer === selectedInvoice.payer ? `${formatMoney(payerExposure.exposure)} of ${formatMoney(payerExposure.maximum)}` : '—'}</dd></div></>}
         </dl>
+        {snapshot?.role === 'manager' && payerExposure?.payer === selectedInvoice.payer && <p className={`notice ${payerExposure.exposure + selectedInvoice.amount > payerExposure.maximum ? 'warning' : 'info'}`}>
+          The payer cap is 10% of total fund size, rounded down: {formatMoney(payerExposure.maximum)}. Existing exposure {formatMoney(payerExposure.exposure)} + full invoice {formatMoney(selectedInvoice.amount)} = {formatMoney(payerExposure.exposure + selectedInvoice.amount)}.
+          {payerExposure.exposure + selectedInvoice.amount > payerExposure.maximum ? ' This exceeds the payer cap; financing would record Rejected under these observed limits, without deducting funds.' : ' This passes the observed payer cap; available funds and execution-time maturity checks must also pass.'}
+        </p>}
         <InvoiceTimeline invoiceId={selectedInvoice.id} />
-        <PrivateAccess><DocumentsPanel key={selectedInvoice.id.toString()} invoiceId={selectedInvoice.id.toString()} /></PrivateAccess>
-        {(selectedInvoice.status === 'Submitted' || selectedInvoice.status === 'Approved') && <InvoiceAssessment key={selectedInvoice.id.toString()} invoice={selectedInvoice} />}
+        <InvoiceDocuments key={`documents:${selectedInvoice.id}`} invoiceId={selectedInvoice.id.toString()} />
+        {(selectedInvoice.status === 'Submitted' || selectedInvoice.status === 'Approved') && <InvoiceAssessment key={`assessment:${selectedInvoice.id}`} invoice={selectedInvoice} />}
         {exposureError && <p className="inline-error" role="alert">Payer exposure unavailable: {exposureError}</p>}
         {formError && <p className="inline-error" role="alert">{formError}</p>}
         {role === 'manager' && <div className="modal-actions">
-          {selectedAction === 'approve' && <button className="btn" disabled={transactionPending} onClick={() => void act(ledger => ledger.approveInvoice(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : 'Approve invoice'}</button>}
-          {selectedAction === 'finance' && <button className="btn" disabled={transactionPending} onClick={() => void act(ledger => ledger.financeInvoice(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : `Finance full ${formatMoney(selectedInvoice.amount)} on-chain`}</button>}
-          {selectedAction === 'repay' && <button className="btn" disabled={transactionPending} onClick={() => void act(ledger => ledger.recordRepayment(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : 'Record repayment'}</button>}
+          {selectedAction === 'approve' && <button className="btn" disabled={transactionPending} onClick={() => void act('approve', selectedInvoice.id, ledger => ledger.approveInvoice(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : 'Approve invoice'}</button>}
+          {selectedAction === 'finance' && <button className="btn" disabled={transactionPending} onClick={() => void act('finance', selectedInvoice.id, ledger => ledger.financeInvoice(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : `Finance full ${formatMoney(selectedInvoice.amount)} on-chain`}</button>}
+          {selectedAction === 'repay' && <button className="btn" disabled={transactionPending} onClick={() => void act('repay', selectedInvoice.id, ledger => ledger.recordRepayment(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : 'Record repayment'}</button>}
           {!selectedAction && <span className="sub">Read-only invoice state</span>}
         </div>}
-        <p className="footnote">The contract stores no PDF. Private fictional PDFs above are linked to this invoice ID and require separate wallet authentication. Financing changes simulated accounting and does not transfer SGD or ETH.</p>
+        <p className="footnote">Submitted → Approved → Financed → Repaid. Approval does not reserve or deduct funds. Financing commits the full invoice face value; repayment restores that principal. The contract stores no PDF. Financing changes simulated accounting and does not transfer SGD or ETH.</p>
       </section>
     </div>}
   </>;

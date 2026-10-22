@@ -315,7 +315,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
           setEvents(scopeEvents(cache.events, nextRole, account, nextSnapshot));
         }
       } catch (cause) {
-        if (isCurrent()) setError(errorMessage(cause));
+        if (isCurrent()) setError(`Blockchain refresh failed. Displayed balances and invoice statuses may be stale. ${errorMessage(cause)}`);
       } finally {
         if (isCurrent()) {
           setLoading(false);

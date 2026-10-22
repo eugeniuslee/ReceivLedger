@@ -98,3 +98,7 @@ References: [Web3 authentication](https://supabase.com/docs/guides/auth/auth-web
 ## Production origin diagnosis after activation (2026-10-22)
 
 Read-only checks reproduced production registry preflight/POST rejection with HTTP 403, while the approved Preview receives preflight 204 and unauthenticated POST 401. The function secret still permits only Preview. Production frontend configuration and the existing production authentication redirect are present. See [REGISTRATION_RESTRUCTURE.md](REGISTRATION_RESTRUCTURE.md#confirmed-production-blocker-read-only-checks-2026-10-22) for evidence, exact proposed two-origin value and acceptance checks. Adding the exact production origin requires separate hosted-change approval; it has not been performed. Do not rerun migrations or disable authentication to address this CORS failure. Never bypass the Preview MetaMask warning.
+
+## Latest live-testing check
+
+The production origin was added with separate approval after the earlier diagnosis above. Current read-only checks confirm production preflight 204, unauthenticated POST 401, rejected unapproved origins and ACTIVE registry revision 2. No further origin/redirect change is indicated. Manager application access needs the manager's own Supabase Web3 sign-in; connecting MetaMask alone does not create it. See [LIVE_TESTING_FIXES.md](LIVE_TESTING_FIXES.md) for current findings, secure memory-only session restoration and acceptance steps. Do not rerun migrations, weaken authentication or bypass MetaMask warnings.

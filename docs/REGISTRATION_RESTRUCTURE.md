@@ -27,7 +27,9 @@ My Assets combines real RLU holdings, ownership/NAV scenarios, permitted transfe
 
 My Invoices and Submit Invoice are separate screens sharing the existing guarded transaction code. Established invoice wallets without an application retain the legacy blockchain path. New SME applicants still require the approved private application in this website; Solidity does not enforce it. No investment/withdrawal requests, profit estimates, redemption or payments were added.
 
-## Confirmed production blocker (read-only checks, 2026-10-22)
+## Historical production blocker (read-only checks, 2026-10-22)
+
+**Superseded operational state:** the separately approved ALLOWED_ORIGINS update subsequently added production while preserving Preview. Latest live checks confirm production preflight 204 and unauthenticated POST 401. See [LIVE_TESTING_FIXES.md](LIVE_TESTING_FIXES.md). The evidence below records the earlier blocker, not the current configuration.
 
 Project: `gltivccwuryzlgpqvyll`. The production page and public JavaScript load successfully and contain the expected project reference and frontend publishable-key configuration. No secret values were printed.
 

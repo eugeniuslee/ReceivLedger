@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
+import { StrictMode } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AuthChangeEvent, Session, SupabaseClient } from '@supabase/supabase-js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RegistryProvider, useRegistry } from './RegistryContext';
-import { registryRequest, readSupabaseConfiguration } from './client';
+import { registryRequest, readSupabaseConfiguration, RegistryRequestError } from './client';
 import { resetBrowserStorage } from '../test/browserStorage';
 
 vi.mock('../chain/LedgerContext', () => ({ useLedger: () => wallet }));
@@ -15,7 +16,7 @@ const alice = '0x2222222222222222222222222222222222222222';
 const bob = '0x3333333333333333333333333333333333333333';
 let wallet: { account: string | null; networkOk: boolean; signWalletMessage: ReturnType<typeof vi.fn> };
 let client: SupabaseClient;
-let signOut: ReturnType<typeof vi.fn>; let signIn: ReturnType<typeof vi.fn>;
+let signOut: ReturnType<typeof vi.fn>; let signIn: ReturnType<typeof vi.fn>; let getSession: ReturnType<typeof vi.fn>;
 let authListener: (event: AuthChangeEvent, session: Session | null) => void;
 let current: ReturnType<typeof useRegistry>;
 function Probe() { current = useRegistry(); return <><span>{current.registeredName ?? 'No private name'}</span><button onClick={() => void current.signIn()}>Sign in</button></>; }
@@ -25,8 +26,9 @@ beforeEach(() => {
   resetBrowserStorage();
   wallet = { account: alice, networkOk: true, signWalletMessage: vi.fn().mockResolvedValue('0x' + 'a'.repeat(130)) };
   signOut = vi.fn().mockResolvedValue({ error: null });
-  signIn = vi.fn().mockResolvedValue({ data: { session: { access_token: 'test-user-session' } }, error: null });
-  client = { auth: { signOut, signInWithWeb3: signIn, onAuthStateChange: (callback: typeof authListener) => { authListener = callback; return { data: { subscription: { unsubscribe: vi.fn() } } }; } } } as unknown as SupabaseClient;
+  getSession = vi.fn().mockResolvedValue({ data: { session: null }, error: null });
+  signIn = vi.fn().mockResolvedValue({ data: { session: { access_token: 'test-user-session', user: { id: 'user' } } }, error: null });
+  client = { auth: { getSession, signOut, signInWithWeb3: signIn, onAuthStateChange: (callback: typeof authListener) => { authListener = callback; return { data: { subscription: { unsubscribe: vi.fn() } } }; } } } as unknown as SupabaseClient;
   vi.mocked(registryRequest).mockReset().mockImplementation(async (_client, _token, input) => (input as Record<string, unknown>).action === 'bootstrap' ? snapshot() : []);
 });
 afterEach(cleanup);
@@ -181,5 +183,97 @@ describe('private session and wallet isolation', () => {
       const config = readSupabaseConfiguration('https://example.supabase.co', key);
       expect(config.client).toBeNull(); expect(config.configurationError).not.toContain(key);
     }
+  });
+});
+
+
+describe('validated memory-session reuse', () => {
+  const session = () => ({ access_token: 'memory-session', user: { id: 'user' }, expires_at: Math.floor(Date.now() / 1000) + 3600 });
+  it('restores a valid memory session on remount through server bootstrap without another signature', async () => {
+    getSession.mockResolvedValue({ data: { session: session() }, error: null });
+    const view = render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await waitFor(() => expect(current.authenticated).toBe(true));
+    view.unmount();
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await waitFor(() => expect(current.authenticated).toBe(true));
+    expect(wallet.signWalletMessage).not.toHaveBeenCalled(); expect(signIn).not.toHaveBeenCalled();
+    expect(registryRequest).toHaveBeenCalledWith(client, 'memory-session', { action: 'bootstrap' });
+    expect(current.application?.status).toBe('pending');
+  });
+  it('reuses the active session for repeated private access and sign-in clicks', async () => {
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await authenticate();
+    await act(async () => { await current.request({ action: 'documents' }); await current.signIn(); await current.reload(); });
+    expect(wallet.signWalletMessage).toHaveBeenCalledOnce(); expect(signIn).toHaveBeenCalledOnce();
+    expect(current.authenticated).toBe(true);
+  });
+  it('does not adopt a restored token for another wallet or another user ID', async () => {
+    getSession.mockResolvedValue({ data: { session: { ...session(), user: { id: 'unrelated-user' } } }, error: null });
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await waitFor(() => expect(current.error).toContain('another wallet'));
+    expect(current.authenticated).toBe(false); expect(current.application).toBeNull();
+    expect(signOut).toHaveBeenCalled(); expect(wallet.signWalletMessage).not.toHaveBeenCalled();
+  });
+  it('does not restore a delayed old session after switching wallets', async () => {
+    let finish!: (data: unknown) => void;
+    getSession.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const view = render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await waitFor(() => expect(getSession).toHaveBeenCalledOnce());
+    wallet = { ...wallet, account: bob }; view.rerender(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await act(async () => { finish({ data: { session: session() }, error: null }); });
+    await waitFor(() => expect(current.busy).toBe(false));
+    expect(current.authenticated).toBe(false); expect(current.application).toBeNull();
+    expect(signOut).toHaveBeenCalled(); expect(signIn).not.toHaveBeenCalled();
+  });
+  it('retries a transient backend failure using the valid SDK session without another signature', async () => {
+    signIn.mockImplementation(async () => { getSession.mockResolvedValue({ data: { session: session() }, error: null }); return { data: { session: session() }, error: null }; });
+    vi.mocked(registryRequest).mockRejectedValueOnce(new Error('Registration RPC is unavailable.'));
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(current.error).toContain('Registration service failed'));
+    expect(current.authenticated).toBe(false); expect(current.application).toBeNull();
+    await authenticate();
+    expect(wallet.signWalletMessage).toHaveBeenCalledOnce(); expect(signIn).toHaveBeenCalledOnce();
+  });
+  it('clears private data and invalidates in-flight requests when a server rejects the session', async () => {
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await authenticate();
+    vi.mocked(registryRequest).mockRejectedValueOnce(new RegistryRequestError('Your private session has expired or is invalid. Sign in again with this wallet.', 401));
+    await act(async () => { await expect(current.request({ action: 'applications' })).rejects.toThrow('expired'); });
+    expect(current.authenticated).toBe(false); expect(current.application).toBeNull(); expect(current.error).toContain('expired');
+    await expect(current.request({ action: 'documents' })).rejects.toThrow('Sign in');
+  });
+});
+
+
+describe('session restore cancellation', () => {
+  it('discards a bootstrap that finishes after an external Auth sign-out during restoration', async () => {
+    getSession.mockResolvedValue({ data: { session: { access_token: 'memory-session', user: { id: 'user' } } }, error: null });
+    let finish!: (value: unknown) => void;
+    vi.mocked(registryRequest).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await waitFor(() => expect(registryRequest).toHaveBeenCalledOnce());
+    await act(async () => { authListener('SIGNED_OUT', null); });
+    await act(async () => { finish(snapshot()); });
+    expect(current.authenticated).toBe(false); expect(current.application).toBeNull(); expect(current.busy).toBe(false);
+  });
+});
+
+
+describe('React StrictMode and token refresh', () => {
+  it('restores a memory session once under the application StrictMode lifecycle', async () => {
+    getSession.mockResolvedValue({ data: { session: { access_token: 'memory-session', user: { id: 'user' } } }, error: null });
+    render(<StrictMode><RegistryProvider client={client}><Probe /></RegistryProvider></StrictMode>);
+    await waitFor(() => expect(current.authenticated).toBe(true));
+    expect(current.application?.status).toBe('pending');
+    expect(signOut).not.toHaveBeenCalled(); expect(wallet.signWalletMessage).not.toHaveBeenCalled();
+  });
+  it('uses a refreshed same-user token without another wallet signature', async () => {
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await authenticate();
+    await act(async () => { authListener('TOKEN_REFRESHED', { user: { id: 'user' }, access_token: 'refreshed-memory-session' } as Session); });
+    await current.request({ action: 'documents' });
+    expect(registryRequest).toHaveBeenLastCalledWith(client, 'refreshed-memory-session', { action: 'documents' });
+    expect(wallet.signWalletMessage).toHaveBeenCalledOnce(); expect(signIn).toHaveBeenCalledOnce();
   });
 });

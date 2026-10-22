@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import { useLedger } from '../chain/LedgerContext';
-import { registryClient, registryConfigurationError, registryRequest } from './client';
+import { registryClient, registryConfigurationError, registryRequest, RegistryRequestError } from './client';
 import { createSignInMessage, sameWallet } from './auth';
 import { needsApplicationSession, rememberApplicationWallet } from './enrollment';
 import type { Application, RegistrySnapshot } from '../../supabase/functions/_shared/domain';
@@ -23,9 +23,20 @@ const fallback: RegistryContextValue = { configured: false, authenticated: false
   application: null, registeredName: null, isManager: false, signIn: unavailable, signOut: async () => {}, reload: async () => {}, request: unavailable, displayName: () => null };
 const RegistryContext = createContext<RegistryContextValue>(fallback);
 const signOutFailure = 'Private data cleared here, but server sign-out failed. Reconnect to retry.';
+class SessionMismatch extends Error {}
+function invalidSession(cause: unknown) { return cause instanceof SessionMismatch || cause instanceof RegistryRequestError && cause.status === 401; }
+
+// The SDK is memory-only. Never restore trust from local storage or JWT claims:
+// bootstrap validates Auth and the active Ethereum identity on the server.
+async function restorePrivateSession(client: SupabaseClient, session: Session, wallet: string) {
+  const snapshot = await registryRequest<RegistrySnapshot>(client, session.access_token, { action: 'bootstrap' });
+  if (!sameWallet(snapshot.profile.wallet, wallet) || snapshot.profile.user_id !== session.user.id) throw new SessionMismatch('The signed session belongs to another wallet.');
+  const names = await registryRequest<DirectoryName[]>(client, session.access_token, { action: 'directory' });
+  return { ...snapshot, token: session.access_token, names };
+}
 
 export function RegistryProvider({ children, client = registryClient }: { children: ReactNode; client?: SupabaseClient | null }) {
-  const { account, networkOk, signWalletMessage } = useLedger();
+  const { account, networkOk, walletChecking, signWalletMessage } = useLedger();
   const scope = account && networkOk ? account.toLowerCase() : '';
   const generation = useRef({ scope, version: 0 });
   if (generation.current.scope !== scope) generation.current = { scope, version: generation.current.version + 1 };
@@ -34,8 +45,16 @@ export function RegistryProvider({ children, client = registryClient }: { childr
   const [error, setError] = useState<string | null>(null);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const operationInFlight = useRef(false);
+  const previousScope = useRef<string | null>(null);
+  const expectedSignOut = useRef(false);
   const authenticated = state && state.scope === scope && state.version === generation.current.version && sameWallet(state.profile.wallet, account) ? state : null;
   const stateRef = useRef(authenticated); stateRef.current = authenticated;
+  const clearClientSession = useCallback(async () => {
+    if (!client) return { error: null };
+    expectedSignOut.current = true;
+    try { return await client.auth.signOut({ scope: 'local' }); }
+    finally { expectedSignOut.current = false; }
+  }, [client]);
 
   const enqueue = useCallback((operation: () => Promise<void>) => {
     const result = queue.current.catch(() => {}).then(operation);
@@ -44,23 +63,50 @@ export function RegistryProvider({ children, client = registryClient }: { childr
   }, []);
 
   useEffect(() => {
+    // Wait for the initial passive wallet lookup. A real disconnect/network or
+    // wallet change still invalidates the session immediately through generation.
+    if (previousScope.current === null && !scope && walletChecking) return;
+    const walletChanged = previousScope.current !== null && previousScope.current !== scope;
+    previousScope.current = scope;
+    if (!walletChanged && stateRef.current) return;
+    let active = true;
     setState(null); setError(null);
     const version = generation.current.version;
     if (client) void enqueue(async () => {
+      if (!active || version !== generation.current.version) return;
+      setBusy(true);
       try {
-        const result = await client.auth.signOut({ scope: 'local' });
+        if (!walletChanged && scope) {
+          const { data, error: sessionError } = await client.auth.getSession();
+          if (sessionError) throw sessionError;
+          if (!active || version !== generation.current.version) return;
+          if (data.session) {
+            const restored = await restorePrivateSession(client, data.session, scope);
+            if (!active || version !== generation.current.version) return;
+            if (restored.application) rememberApplicationWallet(scope);
+            setState({ ...restored, scope, version });
+          }
+          return;
+        }
+        const result = await clearClientSession();
         if (result.error) throw result.error;
-      } catch {
-        if (version === generation.current.version) setError(signOutFailure);
-      }
+      } catch (cause) {
+        if (!active || version !== generation.current.version) return;
+        if (!walletChanged && scope) {
+          if (invalidSession(cause)) await clearClientSession().catch(() => {});
+          if (active && version === generation.current.version) setError(`Private session could not be restored: ${userFacingError(cause, 'Sign in again with this wallet.')}`);
+        } else setError(signOutFailure);
+      } finally { if (active && version === generation.current.version) setBusy(false); }
     });
-  }, [scope, client, enqueue]);
+    return () => { active = false; };
+  }, [scope, walletChecking, client, enqueue, clearClientSession]);
 
   useEffect(() => {
     if (!client) return;
     const { data } = client.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
-        if (stateRef.current) generation.current = { ...generation.current, version: generation.current.version + 1 };
+        if (!expectedSignOut.current || stateRef.current) generation.current = { ...generation.current, version: generation.current.version + 1 };
+        if (!expectedSignOut.current) setBusy(false);
         stateRef.current = null;
         setState(null);
       }
@@ -73,33 +119,43 @@ export function RegistryProvider({ children, client = registryClient }: { childr
     if (!client) { setError(registryConfigurationError ?? 'Frontend Supabase configuration is unavailable.'); return; }
     if (!account || !networkOk) { setError('Connect your intended wallet on Sepolia before signing in.'); return; }
     if (operationInFlight.current) return;
+    if (stateRef.current) { try { await reload(); } catch { /* reload reports its safe error */ } return; }
     operationInFlight.current = true; setBusy(true); setError(null);
     generation.current = { ...generation.current, version: generation.current.version + 1 };
     stateRef.current = null; setState(null);
     const version = generation.current.version; const signingAccount = account;
     await enqueue(async () => {
-      let stage = 'Session cleanup';
+      let stage = 'Session restore';
       try {
         if (version !== generation.current.version) return;
-        const cleanup = await client.auth.signOut({ scope: 'local' });
-        if (cleanup.error) throw new Error(signOutFailure);
-        stage = 'Wallet signature';
-        const message = createSignInMessage(signingAccount, window.location.origin);
-        const signature = await signWalletMessage(message);
+        const { data: existing, error: sessionError } = await client.auth.getSession();
+        if (sessionError) throw sessionError;
         if (version !== generation.current.version) return;
-        stage = 'Supabase authentication';
-        const { data, error: authError } = await client.auth.signInWithWeb3({ chain: 'ethereum', message, signature: signature as `0x${string}` });
-        if (authError) throw authError;
-        const token = data.session.access_token;
+        let session = existing.session;
+        if (!session) {
+          stage = 'Session cleanup';
+          const cleanup = await clearClientSession();
+          if (cleanup.error) throw new Error(signOutFailure);
+          stage = 'Wallet signature';
+          const message = createSignInMessage(signingAccount, window.location.origin);
+          const signature = await signWalletMessage(message);
+          if (version !== generation.current.version) return;
+          stage = 'Supabase authentication';
+          const { data, error: authError } = await client.auth.signInWithWeb3({ chain: 'ethereum', message, signature: signature as `0x${string}` });
+          if (authError) throw authError;
+          session = data.session;
+        }
+        if (!session) throw new Error('No authenticated session was returned. Sign in again.');
         stage = 'Registration service';
-        const snapshot = await registryRequest<RegistrySnapshot>(client, token, { action: 'bootstrap' });
-        if (!sameWallet(snapshot.profile.wallet, signingAccount)) throw new Error('The signed session belongs to another wallet.');
-        const names = await registryRequest<DirectoryName[]>(client, token, { action: 'directory' });
-        if (version !== generation.current.version) { await client.auth.signOut({ scope: 'local' }); return; }
-        if (snapshot.application) rememberApplicationWallet(signingAccount);
-        setState({ ...snapshot, token, scope: signingAccount.toLowerCase(), version, names });
+        const restored = await restorePrivateSession(client, session, signingAccount);
+        if (version !== generation.current.version) { await clearClientSession(); return; }
+        if (restored.application) rememberApplicationWallet(signingAccount);
+        setState({ ...restored, scope: signingAccount.toLowerCase(), version });
       } catch (cause) {
-        await client.auth.signOut({ scope: 'local' }).catch(() => {});
+        // A transient registry/RPC failure does not invalidate a valid SDK
+        // session. Retry bootstrap without another signature; publish no data
+        // until both server identity checks have succeeded.
+        if (stage !== 'Registration service' || invalidSession(cause)) await clearClientSession().catch(() => {});
         if (version === generation.current.version) {
           setState(null);
           setError(stage === 'Wallet signature' ? walletErrorMessage(cause, 'signature')
@@ -115,7 +171,7 @@ export function RegistryProvider({ children, client = registryClient }: { childr
     const version = generation.current.version;
     if (client) await enqueue(async () => {
       try {
-        const result = await client.auth.signOut({ scope: 'local' });
+        const result = await clearClientSession();
         if (result.error) throw result.error;
       } catch {
         if (version === generation.current.version) setError(signOutFailure);
@@ -126,7 +182,15 @@ export function RegistryProvider({ children, client = registryClient }: { childr
     const active = stateRef.current;
     if (!client || !active || active.scope !== generation.current.scope || active.version !== generation.current.version) throw new Error('Sign in with this wallet to access private records.');
     const version = generation.current.version;
-    const result = await registryRequest<T>(client, active.token, input);
+    let result: T;
+    try { result = await registryRequest<T>(client, active.token, input); }
+    catch (cause) {
+      if (cause instanceof RegistryRequestError && cause.status === 401 && version === generation.current.version) {
+        await signOut();
+        if (generation.current.version === version + 1) setError(cause.message);
+      }
+      throw cause;
+    }
     if (version !== generation.current.version) throw new Error('Wallet changed. The previous wallet response was discarded.');
     if (!(input instanceof FormData) && input.action === 'submit') {
       const saved = result as Application;

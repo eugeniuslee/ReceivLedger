@@ -1,8 +1,12 @@
 # ReceivLedger handover
 
+## Latest live-testing review
+
+See [LIVE_TESTING_FIXES.md](LIVE_TESTING_FIXES.md) for current findings and local fixes. This branch starts from main `ad34f4c`. Production CORS is working after the previously approved origin update. The manager needs an initial private Supabase sign-in: read-only checks found no manager Web3 identity/profile, while its manager mirror matches the live contract. No hosted changes were made in this review.
+
 ## Current implementation
 
-Use the existing Git repository `C:\Users\Eugen\Documents\GitHub\ReceivLedger` on `feat/registration-ux-restructure`. Do not use the old OneDrive/export folder or create a replacement repository. Batch 1, Batch 2 and Batch 3 are implemented. The preceding approved Supabase activation applied all three migrations and deployed `registry`; successful hosted wallet acceptance is still pending. Current local frontend QA changes are uncommitted and unpublished. See [REGISTRATION_RESTRUCTURE.md](REGISTRATION_RESTRUCTURE.md) for the latest interface, production origin blocker and role-specific acceptance; [WEBSITE_QA.md](WEBSITE_QA.md) describes the preceding QA pass; earlier export reports describe historical verification dates.
+Use the existing Git repository `C:\Users\Eugen\Documents\GitHub\ReceivLedger` on `fix/live-testing-auth-invoices`. Do not use the old OneDrive/export folder or create a replacement repository. Batch 1, Batch 2 and Batch 3 are implemented. The preceding approved Supabase activation applied all three migrations and deployed `registry`; successful hosted wallet acceptance is still pending. Current local frontend QA changes are uncommitted and unpublished. See [REGISTRATION_RESTRUCTURE.md](REGISTRATION_RESTRUCTURE.md) for the latest interface, production origin blocker and role-specific acceptance; [WEBSITE_QA.md](WEBSITE_QA.md) describes the preceding QA pass; earlier export reports describe historical verification dates.
 
 The running application reads the deployed Sepolia contract, rather than the retained demo ledger. Fund capital, financing and repayment are simulated SGD accounting recorded on-chain; they do not transfer investment proceeds or financing payments. RLU has 0 decimals.
 
