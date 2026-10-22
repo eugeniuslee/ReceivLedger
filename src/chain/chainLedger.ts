@@ -328,6 +328,11 @@ export class ChainLedger {
     const invoiceCount = BigInt(count);
     if (invoiceCount > 10000n) throw new Error('Financial reporting requires pagination for more than 10,000 invoices. No partial portfolio is shown.');
     const invoices = await this.readInvoices(Array.from({ length: Number(invoiceCount) }, (_, i) => BigInt(i + 1)), block.number);
+    // A default/mismatched mapping or an unrecognized lifecycle status must not
+    // silently disappear from outstanding principal, payer exposure or NAV.
+    if (invoices.some((invoice, index) => invoice.id !== BigInt(index + 1) || invoice.status === 'Unknown' || invoice.amount <= 0n)) {
+      throw new Error('Financial invoice records are incomplete or unsupported. No partial portfolio is shown.');
+    }
     return { blockNumber: block.number, blockTimestamp: BigInt(block.timestamp), totalSupply: BigInt(totalSupply),
       connectedBalance: BigInt(connectedBalance), totalFundSize: BigInt(totalFundSize), availableFunds: BigInt(availableFunds),
       maxPayerExposure: BigInt(maxPayerExposure), maxMaturityDays: BigInt(maxMaturityDays), invoices };

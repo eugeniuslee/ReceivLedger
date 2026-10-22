@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LedgerProvider, useLedger } from './LedgerContext';
 import type { RoleSnapshot } from './chainLedger';
 import { resetBrowserStorage } from '../test/browserStorage';
+import { LedgerApp } from '../App';
 
 const calls = vi.hoisted(() => ({ read: vi.fn(), classify: vi.fn(), events: vi.fn() }));
 vi.mock('./chainLedger', async importOriginal => {
@@ -49,6 +50,48 @@ async function mountWallet() {
 }
 
 describe('wallet provider refresh and disconnection', () => {
+  it('explains a rejected connection without leaking the provider payload or requesting a signature', async () => {
+    accounts = [];
+    render(<LedgerProvider><Probe /></LedgerProvider>);
+    await waitFor(() => expect(current.walletAvailable && !current.walletChecking).toBe(true));
+    request.mockImplementation(async ({ method }: { method: string }) => {
+      if (method === 'eth_requestAccounts') throw { code: 4001, message: '{sensitive provider JSON}' };
+      if (method === 'eth_accounts') return [];
+      if (method === 'eth_chainId') return '0xaa36a7';
+      throw new Error('Unexpected request');
+    });
+    await act(async () => { await current.connect(); });
+    expect(current.error).toBe('Wallet connection cancelled.');
+    expect(current.walletChecking).toBe(false); expect(current.account).toBeNull();
+    expect(request.mock.calls.some(([input]) => ['personal_sign', 'eth_sign', 'eth_sendTransaction'].includes(input.method))).toBe(false);
+  });
+  it('shows public onboarding without an installed wallet instead of a role-loading screen', async () => {
+    delete (window as Window & { ethereum?: unknown }).ethereum;
+    render(<LedgerProvider><LedgerApp /></LedgerProvider>);
+    await screen.findByRole('button', { name: 'Apply as an Investor' });
+    expect(screen.getByRole('button', { name: 'Register as an SME' })).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Connect MetaMask' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText('Checking the connected wallet role…')).toBeNull();
+    expect(request).not.toHaveBeenCalled();
+  });
+  it('shows public onboarding with an available but disconnected wallet', async () => {
+    accounts = [];
+    render(<LedgerProvider><LedgerApp /></LedgerProvider>);
+    await screen.findByRole('button', { name: 'Apply as an Investor' });
+    expect((screen.getByRole('button', { name: 'Connect MetaMask' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole('button', { name: 'Register as an SME' })).toBeTruthy();
+    expect(calls.read).not.toHaveBeenCalled();
+  });
+  it('returns to public onboarding when MetaMask removes all accounts', async () => {
+    render(<LedgerProvider><Probe /><LedgerApp /></LedgerProvider>);
+    await waitFor(() => expect(current.role).toBe('provisional'));
+    accounts = [];
+    await act(async () => { listeners.accountsChanged(accounts); });
+    expect(current.account).toBeNull(); expect(current.snapshot).toBeNull(); expect(current.events).toEqual([]);
+    expect(current.loading).toBe(false); expect(current.walletChecking).toBe(false);
+    expect(screen.getByRole('button', { name: 'Apply as an Investor' })).toBeTruthy();
+    expect(screen.queryByText('Checking the connected wallet role…')).toBeNull();
+  });
   it('settles provisional history indexing without repeatedly refreshing snapshots', async () => {
     await mountWallet();
     const reads = calls.read.mock.calls.length;

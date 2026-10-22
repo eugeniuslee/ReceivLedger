@@ -24,6 +24,7 @@ export function MyProfile() {
       <div><dt>Wallet address</dt><dd className="mono selectable-address">{account}</dd></div>
       <div><dt>Current role</dt><dd>{identity.name}</dd></div>
       <div><dt>Registered name</dt><dd>{registeredName ?? 'No registration profile is connected yet.'}</dd></div>
+      {application?.kind === 'sme' && <div><dt>UEN / company registration number</dt><dd>{application.company_number}</dd></div>}
       <div><dt>Private session</dt><dd>{authenticated ? 'Signed in with this wallet' : 'Not signed in'}</dd></div>
       {application && <div><dt>Application</dt><dd>{application.kind} · {application.status}{application.kind === 'sme' ? ' (off-chain)' : ''}</dd></div>}
       {snapshot && 'connectedBalance' in snapshot && <div><dt>RLU holdings</dt><dd>{formatInteger(snapshot.connectedBalance)} RLU</dd></div>}
@@ -62,14 +63,17 @@ export function Help() {
       <details className="help-item"><summary>Why is my investor account inactive?</summary><p>The wallet is no longer approved to transfer RLU. Existing holdings and history remain visible. The contract has no automatic redemption or token burn when approval is revoked.</p></details>
       <details className="help-item"><summary>Check a transaction</summary><p>Open Transaction history or My history and follow its Sepolia Etherscan link. A cancelled wallet prompt is not a confirmed transaction. Never approve a prompt you did not initiate.</p></details>
       <details className="help-item"><summary>Invoice wallets and registration</summary><p>The invoice-wallet view comes from invoices stored for that wallet. Use Registration to sign in and apply, and Documents to upload fictional PDFs. The manager's SME and document verification decisions are off-chain and do not change contract permissions.</p></details>
+      <details className="help-item"><summary>Registration and pending review</summary><p>Connect your wallet, choose Investor or SME, then sign in only if MetaMask shows no security warning. Complete the fictional registration form and submit a fictional verification PDF in Documents. Pending applicants can view their application and files; financial actions remain restricted. The review target of up to 3 working days is illustrative. If more information is requested or your application is rejected, read the manager note, update your details and resubmit. Suspended or revoked applications require manager review.</p></details>
+      <details className="help-item"><summary>MetaMask displays a security warning</summary><p>Cancel the request and do not sign or bypass the warning. Report the existing warning through the official MetaMask Help Center. Connecting a wallet, signing in, off-chain registration review and sending a blockchain transaction are separate steps.</p></details>
+      <details className="help-item"><summary>Understanding financial estimates</summary><p>Invoice face value is the full amount recorded on Sepolia. Proposed advances, fees, borrowing capacity, NAV and holding values are illustrative calculations. The current contract finances face value, does not collect these fees and does not pay SGD or support cash redemption. Repaid invoices remain historical records and do not count as outstanding principal.</p></details>
       <details className="help-item"><summary>Where can I get support?</summary><p>No project support contact has been configured. For wallet troubleshooting, use the official <a className="tx-link" href="https://support.metamask.io/" target="_blank" rel="noreferrer">MetaMask Help Center</a>. Describe the page, error and browser when reporting an issue to your project administrator; omit personal documents and credentials.</p></details>
     </section>
   </div>;
 }
 
 export function About() {
-  return <div className="account-page"><section className="section-block"><span className="section-kicker">University prototype</span><h2>About ReceiveLedger</h2>
-    <p>ReceiveLedger demonstrates a tokenised receivables financing fund, with role-specific tools for the fund manager, investors and invoice-submitting wallets.</p>
+  return <div className="account-page"><section className="section-block"><span className="section-kicker">University prototype</span><h2>About ReceivLedger</h2>
+    <p>ReceivLedger demonstrates a tokenised receivables financing fund, with role-specific tools for the fund manager, investors and invoice-submitting wallets.</p>
     <p>The manager approves investors and records invoice financing and repayments. Approved investors can hold and transfer RLU. Invoice wallets can follow their submitted invoices through the on-chain lifecycle.</p>
     <ContractDetails />
   </section><section className="section-block"><h2>What the prototype represents</h2><p>Blockchain balances, invoice records and confirmed transaction hashes come from Sepolia. Fund capital and repayments are simulated SGD accounting. No SGD/ETH subscriptions, financing payments, redemption, dividends or trading are implemented. RLU has no real monetary value.</p><p className="footnote">Blockchain records are public. Registration and document records use a separately configured private Supabase service. Fictional KYC and company verification are demonstration review workflows, not real identity checks or new Solidity permissions.</p></section></div>;

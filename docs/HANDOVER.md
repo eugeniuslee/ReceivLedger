@@ -1,8 +1,8 @@
-﻿# ReceiveLedger handover
+# ReceivLedger handover
 
 ## Current implementation
 
-Batch 1 is complete and the user reports a GitHub repository and deployed Vercel site. Batch 2 Stages A/B/C have local implementation; hosted Supabase activation and live acceptance checks are pending. See `BATCH2.md` and `SUPABASE_SETUP.md`. Batch 3 financial modelling/reporting is now implemented locally on those same development files; see `BATCH3.md` for formulas, scope, files and manual checks. A new independent local Git repository was initialized on `feat/batch2-supabase` because this workspace had no Git metadata; it has no remote, commits or production history. Reconcile with the real GitHub checkout before any push. Do not push, deploy or change cloud resources without approval.
+Use the existing Git repository `C:\Users\Eugen\Documents\GitHub\ReceivLedger` on `feat/phase4-supabase-audit`. Do not use the old OneDrive/export folder or create a replacement repository. Batch 1, Batch 2 and Batch 3 are implemented. The preceding approved Supabase activation applied all three migrations and deployed `registry`; successful hosted wallet acceptance is still pending. Current local frontend QA changes are uncommitted and unpublished. See [WEBSITE_QA.md](WEBSITE_QA.md) for current scope and role-specific acceptance; earlier export reports describe historical verification dates.
 
 The running application reads the deployed Sepolia contract, rather than the retained demo ledger. Fund capital, financing and repayment are simulated SGD accounting recorded on-chain; they do not transfer investment proceeds or financing payments. RLU has 0 decimals.
 
@@ -22,13 +22,13 @@ The running application reads the deployed Sepolia contract, rather than the ret
 
 The live manager address takes precedence, followed by current investor approval. An unapproved wallet with positive RLU or historical investor evidence is an inactive investor with visible holdings/history and no transfer route. Revocation does not burn or redeem units, and Solidity requires both parties to be approved for ordinary transfers.
 
-Otherwise, stored invoice ownership establishes the invoice-wallet view. Unknown wallets remain provisional and may submit invoices through the existing open submission function. This is not SME registration or identity verification. Zero-balance former investors may need history indexing to complete before classification changes.
+Stored invoice ownership establishes the invoice-wallet view. Unknown wallets remain provisional; new applicants need approved off-chain SME verification to submit through this website. Solidity still permits direct calls and does not enforce SME registration. Established invoice wallets without applications retain existing access. Zero-balance former investors may need history indexing to finish before classification changes.
 
 Wallet changes invalidate pending data requests. Role checks and transaction guards supplement the contract's access checks. Event history starts at deployment block 11,945,118, uses 2,000-block RPC queries and is cached in browser local storage with a 12-block reorg overlap. A new deployment URL has its own browser cache.
 
 ## Verification and deployment
 
-Latest local verification passed TypeScript, Deno Edge type checking, 177 tests across 14 files and the production build. The Batch 3 suite adds 57 tests for financial models, reporting reads and wallet/role isolation to the 120-test Batch 2 baseline; see `BATCH3.md`. Tests include actual PostgreSQL migration/RLS execution in an isolated in-memory test engine. Hosted authentication, storage, real-wallet flows and browser/mobile visual acceptance are still unverified. These checks do not establish that the hosted URL has the local changes.
+Current verification and limitations are recorded in [WEBSITE_QA.md](WEBSITE_QA.md). Tests include disposable PostgreSQL migration/RLS execution, financial scenarios, wallet isolation, safe feedback and refresh recovery. Prior hosted activation passed six HTTP preflight/negative checks. Successful hosted wallet flows and real-browser visual acceptance remain unverified. These checks do not establish that Vercel has the current local changes.
 
 Use the commands and deployment settings in `../README.md`. Existing blockchain features need no application secrets. Registration requires browser publishable configuration plus the approved SQL/Edge deployment described in `SUPABASE_SETUP.md`; no privileged server key may enter the frontend. Keep the GitHub repository private and review files before pushing. Pushing and deployment require explicit approval. Once connected, Vercel's Git integration can automatically deploy later pushes.
 

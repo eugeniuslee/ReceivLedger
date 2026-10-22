@@ -4,6 +4,21 @@ import { testInvoice as invoice, testNow as now, testSnapshot as snapshot } from
 import type { ChainEvent } from '../chain/chainLedger';
 
 describe('proposed advances and fees', () => {
+  it.each([1n, 101n, 100000n, 900719925474099301n])('conserves settlement and SME proceeds at %s cents, including stress fees', face => {
+    for (const advanceBps of [7000, 8000, 9000]) {
+      for (const days of [0n, 1n, 365n, 36500n]) {
+        const q = financingQuote(face, days, { ...defaults, advanceBps });
+        expect(q.advanceCents + q.reserveCents).toBe(face);
+        expect(q.fundRetainedCents + q.smeSettlementCents).toBe(face);
+        expect(q.advanceCents + q.smeSettlementCents).toBe(q.totalSmeProceedsCents);
+        expect(q.totalSmeProceedsCents + q.incomeCents).toBe(face);
+      }
+    }
+  });
+  it('charges simple interest for exactly 365 days and rounds a half-cent service fee up', () => {
+    expect(financingQuote(100000n, 365n, defaults).discountCents).toBe(9600n);
+    expect(financingQuote(50n, 0n, defaults)).toMatchObject({ advanceCents: 40n, discountCents: 0n, serviceFeeCents: 1n });
+  });
   it('splits advance/reserve and computes simple annual and face-value fees exactly', () => {
     const quote = financingQuote(100000n, 30n, defaults);
     expect(quote).toMatchObject({ advanceCents: 80000n, reserveCents: 20000n, discountCents: 789n, serviceFeeCents: 1000n,
@@ -39,6 +54,12 @@ describe('proposed advances and fees', () => {
 });
 
 describe('SME borrowing recommendations and actual full-face constraints', () => {
+  it('distinguishes missing sales from explicit zero sales and accepts exact contract headroom', () => {
+    const exact = assessInvoice(invoice(), snapshot({ availableFunds: 100n, maxPayerExposure: 100n }), now, defaults, 'low');
+    expect(exact.contractEligible).toBe(true);
+    const noSales = assessInvoice(invoice(), snapshot(), now, { ...defaults, annualSalesCents: 0n }, 'low');
+    expect(noSales).toMatchObject({ borrowingLimitCents: 0n, maximumProposedAdvanceCents: 0n, missingFinancialEvidence: false, modelWithinPolicy: false });
+  });
   it('uses conservative unassessed policy and explains the optional sales constraint', () => {
     const result = assessInvoice(invoice(), snapshot(), now, defaults, 'unassessed');
     expect(result).toMatchObject({ borrowingLimitCents: 10000n, remainingBorrowingCents: 10000n, missingFinancialEvidence: true, riskFactorBps: 5000 });
@@ -82,6 +103,11 @@ describe('SME borrowing recommendations and actual full-face constraints', () =>
 });
 
 describe('maturity, portfolio and confirmed history', () => {
+  it.each(['Submitted', 'Approved'] as const)('does not imply a repayment obligation for an unfinanced %s invoice at/past maturity', status => {
+    for (const maturity of [now, now - 1n]) {
+      expect(maturityState(invoice({ status, maturity }), now)).toMatchObject({ overdue: false, label: 'Maturity reached · not financed' });
+    }
+  });
   it('rounds remaining time up, only marks past-due Financed rows overdue and never changes status', () => {
     const row = Object.freeze(invoice({ status: 'Financed', maturity: now - 1n }));
     expect(maturityState(row, now)).toMatchObject({ overdue: true, overdueDays: 0n, label: '<1 day(s) overdue' });
@@ -107,6 +133,15 @@ describe('maturity, portfolio and confirmed history', () => {
 
 describe('NAV and income scenarios', () => {
   const zero = { incomeCents: 0n, liabilitiesCents: 0n, impairmentBps: 0 };
+  it('values holdings from the unrounded NAV ratio instead of rounded NAV per unit', () => {
+    const data = snapshot({ availableFunds: 1n, totalSupply: 3000000n, connectedBalance: 1500000n });
+    expect(navScenario(data, zero)).toMatchObject({ navPerRluMicros: 0n, holdingsValueCents: 50n, ownershipHundredths: 5000n });
+  });
+  it('does not double-count repayments and applies full impairment only to active principal', () => {
+    const data = snapshot({ availableFunds: 900n, invoices: [invoice({ status: 'Financed' }), invoice({ id: 2n, status: 'Repaid', amount: 400n })] });
+    expect(navScenario(data, { ...zero, impairmentBps: 10000 })).toMatchObject({ principalCents: 10000n, impairmentCents: 10000n, navCents: 90000n });
+    expect(navScenario(snapshot({ invoices: [invoice({ status: 'Repaid' })] }), zero).navCents).toBe(100000n);
+  });
   it('builds NAV from liquidity and active principal with explicit adjustments, never totalFundSize', () => {
     const data = snapshot({ totalFundSize: 9999n, availableFunds: 900n, invoices: [invoice({ status: 'Financed' }), invoice({ id: 2n, status: 'Repaid', amount: 999n })] });
     expect(navScenario(data, { incomeCents: 1000n, liabilitiesCents: 200n, impairmentBps: 1000 })).toMatchObject({ baseAssetsCents: 100000n, impairmentCents: 1000n, navCents: 99800n, navPerRluMicros: 998000n, holdingsValueCents: 24950n, ownershipHundredths: 2500n });

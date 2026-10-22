@@ -2,9 +2,9 @@
 
 React 18, TypeScript, Vite 5 and ethers v6 frontend for the deployed ReceivLedger contract. All dashboard and workflow data is read from Sepolia; this app does not use a fictional in-browser ledger.
 
-## Current local work: Batch 3 financial reporting
+## Current local work: website integration and QA
 
-Batch 2 now includes local Supabase integration, Ethereum signed-message authentication, Investor/SME applications, manager review, fictional private KYC/invoice PDFs, and registered names integrated with the existing Home/profile pages. The existing blockchain workflows are preserved. Hosted activation has not been performed. See [Batch 2 progress](docs/BATCH2.md) and [Supabase setup](docs/SUPABASE_SETUP.md) before configuring or deploying anything.
+The existing Supabase backend for `gltivccwuryzlgpqvyll` has been activated with explicit approval: three migrations, five protected tables, private PDF storage, `registry` and its approved origin/RPC settings. Hosted negative/preflight HTTP checks passed, but successful wallet registration, manager review and document isolation have not been verified end to end. The testing Preview's MetaMask warning remains unresolved; do not bypass it or sign there. See [Website QA](docs/WEBSITE_QA.md) for the current local improvements, role flows, test scope and manual checklist. No frontend deployment is part of this local review.
 
 Batch 3 adds manager financial reporting, illustrative SME borrowing/fee assessments, maturity and overdue tracking with actual repayment history, and investor NAV scenarios. It uses public Sepolia records and works without Supabase activation. Models do not change contract accounting: financing still commits full face value without fees, and redemption/distributions are unavailable. See [Batch 3 implementation and two-step manual check](docs/BATCH3.md) for formulas, defaults, files and limitations. These local changes have not been pushed or deployed.
 
@@ -77,7 +77,7 @@ On Windows PowerShell, if `npm` is blocked by script execution policy, use `npm.
 - The contract does not expose an enumerable investor list. Investor status and balance are queried by explicit address. Suggested wallets come only from approval/revocation events found in the history scan and are not a complete list.
 - Contract event history is initially scanned from the verified deployment block in 2,000-block RPC requests, cached in browser local storage, then incrementally updated with a 12-block reorg overlap. A cleared browser cache requires the initial scan again. Public RPC availability and rate limits can still cause visible history errors. SME invoice ownership is recovered from `invoices(1..invoiceCount)` and the stored `sme` address, so old invoices do not depend on the event-history cursor.
 - There is no manual reject function. `financeInvoice()` can record an InvoiceRejected event and reason when a finance check fails.
-- PDFs, registration and review records are private off-chain Supabase features requiring separate activation; the contract stores none of those files or identity decisions. There are no external accounting transfers, automated investor discovery, or production financial controls. Only fictional demonstration documents may be used.
+- PDFs, registration and review records are private off-chain Supabase features requiring signed wallet authentication; the contract stores none of those files or identity decisions. There are no external accounting transfers, automated investor discovery, or production financial controls. Only fictional demonstration documents may be used.
 - Sending transactions requires the current wallet to have the contract role/approval required by Solidity. The interface does not bypass those checks.
 
 ## Tests

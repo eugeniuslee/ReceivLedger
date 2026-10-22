@@ -4,6 +4,7 @@ import { RECEIVLEDGER_ADDRESS, SEPOLIA_CHAIN_ID } from './abi';
 import { ChainLedger, CONTRACT_DEPLOYMENT_BLOCK, filterInvestorEvents, filterInvoiceEvents, transactionRoleAllowed, walletRoleChanged, type ChainEvent, type RoleSnapshot, type WalletRole } from './chainLedger';
 import { eventCacheKey, loadEventCache, mergeChainEvents, saveEventCache, type EventCacheEntry } from './eventCache';
 import { didWalletAddressChange, isCurrentWalletRequest } from './requestGuard';
+import { walletErrorMessage } from '../errors';
 
 type InjectedWallet = Eip1193Provider & {
   on: (event: string, listener: (...args: unknown[]) => void) => void;
@@ -41,9 +42,7 @@ const LedgerContext = createContext<LedgerContextValue | null>(null);
 const EVENT_REORG_OVERLAP = 12;
 
 function errorMessage(error: unknown): string {
-  const candidate = error as { shortMessage?: string; reason?: string; message?: string; code?: number | string };
-  if (candidate?.code === 4001 || candidate?.code === 'ACTION_REJECTED') return 'Transaction or wallet request was rejected in MetaMask.';
-  return candidate?.shortMessage ?? candidate?.reason ?? candidate?.message ?? 'The wallet or Sepolia RPC request failed.';
+  return walletErrorMessage(error, 'read');
 }
 
 function clearRoleData(
@@ -159,7 +158,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       if (sequence === syncSequence.current && walletGeneration === walletVersion.current) {
         setWalletChecking(false);
         setLoading(false);
-        setError(errorMessage(cause));
+        setError(walletErrorMessage(cause, 'connection'));
       }
     }
   }, [injected, provider]);
@@ -201,6 +200,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       setWalletChecking(Boolean(nextAccount && networkOkRef.current));
       accountRef.current = nextAccount;
       setAccount(nextAccount);
+      if (!nextAccount) setLoading(false);
       setWalletRevision(revision => revision + 1);
       if (!networkOkRef.current) void synchronizeWallet(false);
     };
@@ -434,7 +434,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       void refreshEvents(true);
       return receipt;
     } catch (cause) {
-      const message = errorMessage(cause);
+      const message = walletErrorMessage(cause, 'transaction');
       setError(message);
       throw new Error(message);
     } finally {

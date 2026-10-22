@@ -1,3 +1,4 @@
+import { userFacingError } from '../errors';
 import { useEffect, useMemo, useState } from 'react';
 import { useLedger } from '../chain/LedgerContext';
 import { invoiceActionForStatus, type ChainLedger } from '../chain/chainLedger';
@@ -8,15 +9,18 @@ import { maturityState } from '../finance/models';
 import { financialDate } from '../finance/presentation';
 import { InvoiceAssessment } from '../components/FinancialModels';
 import { InvoiceTimeline } from '../components/InvoiceTimeline';
+import { useRegistrationAccess } from '../registration/access';
 
 export function Invoices() {
   const { account, role, networkOk, snapshot, loading, transactionPending, ledger, runTransaction } = useLedger();
   const { now } = useFinance();
+  const registration = useRegistrationAccess();
   const [payer, setPayer] = useState('');
   const [amount, setAmount] = useState('');
   const [maturity, setMaturity] = useState('');
   const [filter, setFilter] = useState('All');
   const [formError, setFormError] = useState('');
+  const [message, setMessage] = useState('');
   const [selectedId, setSelectedId] = useState<bigint | null>(null);
   const [payerExposure, setPayerExposure] = useState<{ payer: string; exposure: bigint; maximum: bigint } | null>(null);
   const [exposureLoading, setExposureLoading] = useState(false);
@@ -40,7 +44,7 @@ export function Invoices() {
       .then(([exposure, maximum]) => {
         if (current) setPayerExposure({ payer: selectedInvoice.payer, exposure, maximum });
       })
-      .catch(cause => { if (current) setExposureError((cause as Error).message); })
+      .catch(cause => { if (current) setExposureError(userFacingError(cause)); })
       .finally(() => { if (current) setExposureLoading(false); });
     return () => { current = false; };
   }, [ledger, role, snapshot?.role, selectedInvoice?.id, selectedInvoice?.payer, selectedInvoice?.status]);
@@ -48,7 +52,9 @@ export function Invoices() {
   async function submitInvoice(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError('');
+    setMessage('');
     try {
+      await registration.authorize('invoice');
       if (!payer.trim()) throw new Error('Enter the payer name.');
       if (!/^[1-9]\d*$/.test(amount)) throw new Error('Enter a positive whole-number S$ amount.');
       if (!maturity) throw new Error('Choose a maturity date.');
@@ -57,15 +63,16 @@ export function Invoices() {
       const submitRole = role === 'sme' ? 'sme' : 'provisional';
       await runTransaction(submitRole, ledger => ledger.submitInvoice(payer.trim(), BigInt(amount), maturitySeconds));
       setPayer(''); setAmount(''); setMaturity('');
+      setMessage('Invoice submission confirmed on Sepolia. Refresh to review its latest status.');
     } catch (cause) {
-      setFormError((cause as Error).message);
+      setFormError(userFacingError(cause));
     }
   }
 
   async function act(action: (ledger: ChainLedger) => Promise<unknown>) {
-    setFormError('');
-    try { await runTransaction('manager', action); }
-    catch (cause) { setFormError((cause as Error).message); }
+    setFormError(''); setMessage('');
+    try { await runTransaction('manager', action); setMessage('Transaction confirmed on Sepolia. Review the updated invoice status: a financing attempt can be recorded as Rejected by the contract.'); }
+    catch (cause) { setFormError(userFacingError(cause)); }
   }
 
   useEffect(() => {
@@ -78,23 +85,26 @@ export function Invoices() {
   if (!networkOk) return <div className="empty-state">Switch to Sepolia to load contract invoices.</div>;
   if (loading && !snapshot) return <div className="empty-state">Loading invoice records…</div>;
   if (role !== 'manager' && role !== 'sme' && role !== 'provisional') return <div className="notice error" role="alert">Invoice access is not available for this wallet role.</div>;
+  const invoiceDataAvailable = role === 'provisional' || snapshot?.role === role;
 
   return <>
+    {message && <p className="notice info" role="status">{message}</p>}
     {(role === 'sme' || role === 'provisional') && account && <section className="section-block form-section">
       <div className="section-heading"><div><span className="eyebrow">Open contract function</span><h2>Submit an invoice</h2></div></div>
-      <p className="support-copy">Any non-manager wallet may call submitInvoice(). The submitting address is stored on the invoice; this does not register or verify a real-world SME identity.</p>
+      <p className="support-copy">New applicants require manager SME verification to submit through this website. Solidity permits direct submitInvoice calls from arbitrary wallets; this website restriction is not enforced by the contract. Existing invoice wallets without applications retain their blockchain access.</p>
+      {!registration.invoiceAllowed && <p className="notice warning" role="status">{registration.reason}</p>}
       <form className="form-row" onSubmit={submitInvoice}>
         <label>Payer name<input value={payer} onChange={event => setPayer(event.target.value)} maxLength={100} required placeholder="Company or payer" /></label>
-        <label>Amount (S$)<input type="number" min="1" step="1" inputMode="numeric" value={amount} onChange={event => setAmount(event.target.value)} required /></label>
+        <label>Invoice face value (S$)<input type="number" min="1" step="1" inputMode="numeric" value={amount} onChange={event => setAmount(event.target.value)} required /></label>
         <label>Maturity date<input type="date" value={maturity} onChange={event => setMaturity(event.target.value)} required /></label>
-        <button className="btn" disabled={transactionPending}>Submit invoice</button>
+        <button className="btn" disabled={transactionPending || !registration.invoiceAllowed}>Submit invoice</button>
       </form>
       {formError && <p className="inline-error" role="alert">{formError}</p>}
     </section>}
     {role === 'sme' && <div className="notice warning">Invoice-wallet view: these records are stored under this address. The contract does not verify real-world SME identity.</div>}
     {role === 'provisional' && <div className="notice info">This wallet has no confirmed contract role yet. Existing records, if any, are not exposed as SME invoices until their stored address is verified.</div>}
 
-    <section className="section-block">
+    {!invoiceDataAvailable ? <div className="empty-state">Invoice records are unavailable. Refresh blockchain after checking the connection; missing records are not treated as zero invoices.</div> : <section className="section-block">
       <div className="section-heading table-heading">
         <div><span className="eyebrow">Deployed contract</span><h2>Invoices</h2></div>
         <label className="filter-label">Status<select value={filter} onChange={event => setFilter(event.target.value)}>{['All', 'Submitted', 'Approved', 'Financed', 'Overdue', 'Rejected', 'Repaid'].map(status => <option key={status}>{status}</option>)}</select></label>
@@ -111,8 +121,8 @@ export function Invoices() {
       </table></div> : <div className="empty-state compact">{role === 'sme' ? 'No invoices submitted by this wallet were found in contract mappings.' : role === 'provisional' ? 'No invoices are currently mapped to this wallet.' : 'No invoices match this status.'}</div>}
       {formError && <p className="inline-error" role="alert">{formError}</p>}
       <p className="footnote">Finance and repayment update simulated contract accounting only. No SGD or ETH is transferred. A finance attempt may succeed as a transaction while the contract changes the invoice to Rejected; the row will show the recorded reason.</p>
-    </section>
-    {(role === 'manager' || role === 'sme') && selectedInvoice && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setSelectedId(null); }}>
+    </section>}
+    {invoiceDataAvailable && (role === 'manager' || role === 'sme') && selectedInvoice && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setSelectedId(null); }}>
       <section className="invoice-modal" role="dialog" aria-modal="true" aria-labelledby="invoice-modal-title">
         <div className="section-heading"><div><span className="eyebrow">On-chain invoice record</span><h2 id="invoice-modal-title">Invoice #{selectedInvoice.id.toString()}</h2></div><button className="btn outline" onClick={() => setSelectedId(null)} aria-label="Close invoice details">Close</button></div>
         <dl className="detail-list">

@@ -42,16 +42,19 @@ export function canAccessPage(role: WalletRole | null, page: PageId): boolean {
 
 export function navigationForRole(role: WalletRole | null): NavItem[] {
   if (!role) return [];
-  return [...ROLE_PAGES[role], role === 'manager'
-    ? { id: 'applications', title: 'Applications', icon: '✓' }
-    : { id: 'registration', title: 'Registration', icon: '+' },
-  { id: 'documents', title: 'Documents', icon: '▧' }, ...(role === 'manager' ? [{ id: 'reports' as PageId, title: 'Financial reports', icon: '▥' }] : [])];
+  if (role === 'manager') return [ROLE_PAGES.manager[0],
+    { id: 'applications', title: 'Applications', icon: '✓' },
+    ROLE_PAGES.manager[2], ROLE_PAGES.manager[1],
+    { id: 'reports', title: 'Financial reports', icon: '▥' },
+    { id: 'documents', title: 'Documents', icon: '▧' }, ROLE_PAGES.manager[3]];
+  return [...ROLE_PAGES[role], { id: 'registration', title: 'Registration', icon: '+' },
+    { id: 'documents', title: 'Documents', icon: '▧' }];
 }
 
 export const SUPPORT_PAGES: NavItem[] = [
   { id: 'settings', title: 'Settings', icon: '⚙' },
   { id: 'help', title: 'Help & Support', icon: '?' },
-  { id: 'about', title: 'About ReceiveLedger', icon: 'ⓘ' },
+  { id: 'about', title: 'About ReceivLedger', icon: 'ⓘ' },
 ];
 
 

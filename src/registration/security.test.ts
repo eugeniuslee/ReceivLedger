@@ -15,6 +15,15 @@ function evidence(): ApprovalEvidence { return { chainId: 11155111n, status: 1, 
   logs: [{ address: CONTRACT_ADDRESS, ...approval }], approved: true }; }
 
 describe('signed wallet authentication and input validation', () => {
+  it.each(['javascript:alert(1)', 'https://user:password@example.test/', 'http://example.test'])('rejects an unsafe company website %s', website => {
+    expect(() => registrationInput({ kind: 'sme', display_name: 'Demo SME', company_number: 'DEMO', contact_email: 'demo@example.test', contact_phone: 'DEMO-123',
+      details: { country: '', website, business_address: 'Fictional address', contact_name: 'Demo contact' } })).toThrow(/HTTPS/);
+  });
+  it('requires investor residence and a contact number rather than storing an incomplete application', () => {
+    const form = { kind: 'investor', display_name: 'Demo Investor', company_number: '', contact_email: 'demo@example.test', contact_phone: 'DEMO-123' };
+    expect(() => registrationInput(form)).toThrow(/country of residence/);
+    expect(() => registrationInput({ ...form, contact_phone: '', details: { country: 'Demo country' } })).toThrow(/contact number/);
+  });
   it('creates a domain-bound Sepolia sign-in message with verifiable signature', async () => {
     const wallet = Wallet.createRandom();
     const message = createSignInMessage(wallet.address, 'https://receiv-ledger.vercel.app/', new Date('2026-10-22T00:00:00Z'), 'a123456789');
@@ -29,7 +38,7 @@ describe('signed wallet authentication and input validation', () => {
     expect(invoiceId('2')).toBe('2');
   });
   it('requires company registration for SMEs and valid private contact fields', () => {
-    const form = { kind: 'sme', display_name: 'Demo SME', company_number: '', contact_email: 'demo@example.test', contact_phone: '' };
+    const form = { kind: 'sme', display_name: 'Demo SME', company_number: '', contact_email: 'demo@example.test', contact_phone: 'DEMO-123', details: { country: '', website: '', business_address: 'Fictional address', contact_name: 'Demo contact' } };
     expect(() => registrationInput(form)).toThrow(/registration number/);
     expect(registrationInput({ ...form, company_number: 'DEMO123', wallet: manager }).display_name).toBe('Demo SME');
     expect(() => registrationInput({ ...form, contact_email: 'bad' })).toThrow(/email/);

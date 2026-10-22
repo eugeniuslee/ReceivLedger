@@ -32,6 +32,14 @@ describe('financial reporting contract reads', () => {
     calls.invoices.mockRejectedValue(new Error('RPC unavailable'));
     await expect(ledger.readFinancialSnapshot('0xwallet')).rejects.toThrow('RPC unavailable');
   });
+  it.each([
+    { id: 0n }, { id: 2n }, { status: 99n }, { amount: 0n },
+  ])('rejects unusable mapping data rather than understating exposure: %s', async change => {
+    const { ledger, calls } = reader();
+    const row = await calls.invoices();
+    calls.invoices.mockResolvedValue({ ...row, ...change });
+    await expect(ledger.readFinancialSnapshot('0xwallet')).rejects.toThrow('No partial portfolio');
+  });
   it('handles an empty portfolio without reading a sample invoice', async () => {
     const { ledger, calls } = reader(0n);
     expect((await ledger.readFinancialSnapshot('0xwallet')).invoices).toEqual([]);

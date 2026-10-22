@@ -1,3 +1,4 @@
+import { userFacingError } from '../errors';
 import { useEffect, useRef, useState } from 'react';
 import { useRegistry } from '../registration/RegistryContext';
 import { MAX_PDF_BYTES, type PrivateDocument } from '../../supabase/functions/_shared/domain';
@@ -8,20 +9,26 @@ export function Documents() { return <PrivateAccess><DocumentsPanel /></PrivateA
 export function DocumentsPanel({ applicationId }: { applicationId?: string }) {
   const { application, isManager, request } = useRegistry();
   const [documents, setDocuments] = useState<PrivateDocument[]>([]);
-  const [purpose, setPurpose] = useState<'kyc' | 'invoice'>(application ? 'kyc' : 'invoice');
+  const [purpose, setPurpose] = useState<'kyc' | 'invoice'>(application && ['pending', 'needs_info'].includes(application.status) ? 'kyc' : 'invoice');
   const [invoice, setInvoice] = useState(''); const [file, setFile] = useState<File | null>(null);
   const [consent, setConsent] = useState(false); const [busy, setBusy] = useState(false);
   const [error, setError] = useState(''); const [message, setMessage] = useState('');
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true); const [loaded, setLoaded] = useState(false);
+  const loadVersion = useRef(0);
   const mounted = useRef(true); const requestRef = useRef(request); requestRef.current = request;
   async function load() {
-    const rows = await requestRef.current<PrivateDocument[]>({ action: 'documents', ...(applicationId ? { application_id: applicationId } : {}) });
-    if (mounted.current) setDocuments(rows);
+    const version = ++loadVersion.current;
+    setLoading(true); setError('');
+    try {
+      const rows = await requestRef.current<PrivateDocument[]>({ action: 'documents', ...(applicationId ? { application_id: applicationId } : {}) });
+      if (mounted.current && version === loadVersion.current) { setDocuments(rows); setLoaded(true); }
+    } finally { if (mounted.current && version === loadVersion.current) setLoading(false); }
   }
-  useEffect(() => { mounted.current = true; void load().catch(cause => { if (mounted.current) setError(cause.message); }); return () => { mounted.current = false; }; }, [applicationId]);
+  useEffect(() => { mounted.current = true; setDocuments([]); setLoaded(false); void load().catch(cause => { if (mounted.current) setError(userFacingError(cause)); }); return () => { mounted.current = false; loadVersion.current++; }; }, [applicationId]);
   async function perform(operation: () => Promise<void>) {
     setBusy(true); setError(''); setMessage('');
-    try { await operation(); } catch (cause) { if (mounted.current) setError((cause as Error).message); }
+    try { await operation(); } catch (cause) { if (mounted.current) setError(userFacingError(cause)); }
     finally { if (mounted.current) setBusy(false); }
   }
   async function upload(event: React.FormEvent<HTMLFormElement>) {
@@ -51,22 +58,24 @@ export function DocumentsPanel({ applicationId }: { applicationId?: string }) {
       await load(); if (mounted.current) setMessage('Document review decision recorded off-chain.');
     });
   }
-  return <section className="section-block"><div className="section-heading"><h2>{applicationId ? 'Application KYC documents' : 'Private documents'}</h2><button className="btn o small" disabled={busy} onClick={() => void perform(load)}>Refresh documents</button></div>
+  const visibleDocuments = applicationId ? documents.filter(doc => doc.application_id === applicationId) : documents;
+  return <section className="section-block"><div className="section-heading"><h2>{applicationId ? 'Application KYC documents' : 'Private documents'}</h2><button className="btn o small" disabled={busy || loading} onClick={() => void perform(async () => { await load(); if (mounted.current) setMessage('Documents refreshed.'); })}>{loading ? 'Loading documents…' : 'Refresh documents'}</button></div>
     <p className="support-copy">Fictional PDFs only, up to 5 MB and 100 pages. Files are private to the submitting wallet and fund manager. Document verification is an off-chain review decision, not proof of real identity or on-chain permission.</p>
     {!isManager && !applicationId && <form className="registration-form document-upload" onSubmit={event => void upload(event)}>
-      <label>Document purpose<select value={purpose} onChange={event => setPurpose(event.target.value as 'kyc' | 'invoice')}><option value="kyc" disabled={!application || application.status !== 'pending'}>Application KYC</option><option value="invoice">Invoice PDF</option></select></label>
+      <label>Document purpose<select value={purpose} onChange={event => setPurpose(event.target.value as 'kyc' | 'invoice')}><option value="kyc" disabled={!application || !['pending', 'needs_info'].includes(application.status)}>Application KYC</option><option value="invoice">Invoice PDF</option></select></label>
       {purpose === 'kyc' ? <p className="support-copy">Attached to your pending application. Submit or resubmit an application before uploading KYC.</p> : <label>On-chain invoice ID<input value={invoice} required inputMode="numeric" pattern="[1-9][0-9]*" onChange={event => setInvoice(event.target.value)} placeholder="For example, 1" /></label>}
       <label>Fictional PDF<input type="file" required accept="application/pdf,.pdf" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
       <label className="consent-row"><input type="checkbox" required checked={consent} onChange={event => setConsent(event.target.checked)} />This PDF contains fictional demonstration information, not a real identity or confidential document.</label>
-      <button className="btn" disabled={busy || !consent || (purpose === 'kyc' && application?.status !== 'pending')}>{busy ? 'Working…' : 'Upload privately'}</button>
+      <button className="btn" disabled={busy || !consent || (purpose === 'kyc' && !['pending', 'needs_info'].includes(application?.status ?? ''))}>{busy ? 'Working…' : 'Upload privately'}</button>
     </form>}
     {error && <p className="inline-error" role="alert">{error}</p>}{message && <p className="notice info" role="status">{message}</p>}
-    <div className="table-scroll"><table><thead><tr><th>Document</th><th>Linked record</th><th>Review status</th><th>Actions</th></tr></thead><tbody>{documents.map(doc => <tr key={doc.id}>
+    {loading && <p role="status">Loading private documents…</p>}
+    <div className="table-scroll"><table><thead><tr><th>Document</th><th>Linked record</th><th>Review status</th><th>Actions</th></tr></thead><tbody>{visibleDocuments.map(doc => <tr key={doc.id}>
       <td><strong>{doc.filename}</strong><small className="document-meta">{(doc.byte_size / 1024).toFixed(0)} KB · SHA-256 {doc.sha256.slice(0, 12)}…</small></td>
       <td>{doc.purpose === 'invoice' ? `Invoice #${doc.invoice_id}` : 'Application KYC'}</td><td>{doc.status}{doc.review_note && <small className="document-meta">{doc.review_note}</small>}</td>
       <td><button className="btn o small" disabled={busy} onClick={() => void download(doc)}>Download PDF</button>
         {isManager && doc.status === 'pending' && <div className="document-review"><label>Review note<input value={notes[doc.id] ?? ''} maxLength={2000} onChange={event => setNotes(previous => ({ ...previous, [doc.id]: event.target.value }))} /></label>
           <button className="btn small" disabled={busy} onClick={() => void review(doc, 'verified')}>Verify demo document</button><button className="btn o small" disabled={busy} onClick={() => void review(doc, 'rejected')}>Reject</button></div>}
-      </td></tr>)}</tbody></table></div>{!documents.length && <p className="empty-state compact">No documents were returned for this view.</p>}
+      </td></tr>)}</tbody></table></div>{loaded && !loading && !error && !visibleDocuments.length && <p className="empty-state compact">No documents were returned for this view.</p>}
   </section>;
 }
