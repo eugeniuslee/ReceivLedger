@@ -1,5 +1,7 @@
 # Supabase activation: review before changing cloud resources
 
+This is a **Vite** project: local browser configuration uses `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in ignored `.env.local`. `NEXT_PUBLIC_*` names belong to Next.js and are not read by this app; `.env.example` is a template and is not loaded automatically. The repository audit corrected those template names while preserving the existing browser-safe values. See [REPOSITORY_VERIFICATION.md](REPOSITORY_VERIFICATION.md) for the current branch/history findings and checks; earlier phase reports describe their original verification dates, not proof of hosted activation.
+
 The frontend, migration and Edge Function are prepared locally. No hosted migration, function deployment, authentication setting change or blockchain transaction has been performed by the agent. The Project URL and publishable key alone are not sufficient to activate these workflows.
 
 ## Required configuration

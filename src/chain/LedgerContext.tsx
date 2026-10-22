@@ -201,6 +201,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       setWalletChecking(Boolean(nextAccount && networkOkRef.current));
       accountRef.current = nextAccount;
       setAccount(nextAccount);
+      if (!nextAccount) setLoading(false);
       setWalletRevision(revision => revision + 1);
       if (!networkOkRef.current) void synchronizeWallet(false);
     };
