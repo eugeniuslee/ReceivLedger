@@ -44,9 +44,24 @@ describe('new-wallet onboarding and secure registration forms', () => {
     registry.authenticated = false; registry.configured = false;
     render(<Registration />);
     expect(screen.queryByLabelText('Full name')).toBeNull();
-    expect(screen.getByText(/Private registration is not configured yet/)).toBeTruthy();
+    expect(screen.getByText('Frontend Supabase configuration unavailable')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Sign in with this wallet' }) as HTMLButtonElement).disabled).toBe(true);
     expect(registry.request).not.toHaveBeenCalled();
+  });
+  it.each(['Supabase authentication failed: Ethereum provider is disabled.', 'Registration service failed: Registration RPC is unavailable.'])('keeps frontend readiness separate from a later failure: %s', error => {
+    registry.authenticated = false; registry.error = error; registry.frontendConfigurationError = null;
+    render(<Registration />);
+    expect(screen.getByText(/Frontend Supabase configuration loaded/)).toBeTruthy();
+    expect(screen.queryByText('Frontend Supabase configuration unavailable')).toBeNull();
+    expect(screen.getByRole('alert').textContent).toBe(error);
+    expect((screen.getByRole('button', { name: 'Sign in with this wallet' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+  it('shows the rejected frontend field without echoing a supplied value', () => {
+    registry.authenticated = false; registry.configured = false;
+    registry.frontendConfigurationError = 'Invalid VITE_SUPABASE_PUBLISHABLE_KEY in this build.';
+    render(<Registration />);
+    expect(screen.getByText('Invalid VITE_SUPABASE_PUBLISHABLE_KEY in this build.')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Sign in with this wallet' }) as HTMLButtonElement).disabled).toBe(true);
   });
   it('submits the investor fields with the wallet read-only and navigates after saving', async () => {
     const submitted = vi.fn(); vi.mocked(registry.request).mockResolvedValue(application);

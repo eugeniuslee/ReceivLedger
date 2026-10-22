@@ -33,6 +33,21 @@ afterEach(cleanup);
 async function authenticate() { fireEvent.click(screen.getByRole('button', { name: 'Sign in' })); await waitFor(() => expect(current.authenticated).toBe(true)); }
 
 describe('private session and wallet isolation', () => {
+  it('identifies Supabase authentication failure without losing frontend readiness', async () => {
+    signIn.mockResolvedValue({ data: { session: null }, error: new Error('Ethereum provider is disabled.') });
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(current.error).toBe('Supabase authentication failed: Ethereum provider is disabled.'));
+    expect(current.configured).toBe(true); expect(current.frontendConfigurationError).toBeNull();
+  });
+  it('identifies backend/bootstrap failures separately from frontend configuration and Auth', async () => {
+    vi.mocked(registryRequest).mockRejectedValueOnce(new Error('Registration RPC is unavailable.'));
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(current.error).toBe('Registration service failed: Registration RPC is unavailable.'));
+    expect(signIn).toHaveBeenCalledOnce();
+    expect(current.configured).toBe(true); expect(current.frontendConfigurationError).toBeNull();
+  });
   it('discards in-flight private responses after an Auth sign-out event', async () => {
     render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
     await authenticate();

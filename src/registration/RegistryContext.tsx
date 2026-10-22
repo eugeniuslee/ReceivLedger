@@ -10,6 +10,7 @@ interface DirectoryName { wallet: string; display_name: string; kind: string }
 interface AuthenticatedState extends RegistrySnapshot { token: string; scope: string; version: number; names: DirectoryName[] }
 interface RegistryContextValue {
   configured: boolean; authenticated: boolean; busy: boolean; error: string | null; requiresRegistrationSession?: boolean;
+  frontendConfigurationError?: string | null;
   application: Application | null; registeredName: string | null; isManager: boolean;
   signIn: () => Promise<void>; signOut: () => Promise<void>; reload: () => Promise<void>;
   request: <T>(input: Record<string, unknown> | FormData) => Promise<T>;
@@ -17,6 +18,7 @@ interface RegistryContextValue {
 }
 const unavailable = async (): Promise<never> => { throw new Error('Sign in after configuring Supabase.'); };
 const fallback: RegistryContextValue = { configured: false, authenticated: false, busy: false, error: null,
+  frontendConfigurationError: registryConfigurationError,
   application: null, registeredName: null, isManager: false, signIn: unavailable, signOut: async () => {}, reload: async () => {}, request: unavailable, displayName: () => null };
 const RegistryContext = createContext<RegistryContextValue>(fallback);
 const signOutFailure = 'Private data cleared here, but server sign-out failed. Reconnect to retry.';
@@ -67,23 +69,28 @@ export function RegistryProvider({ children, client = registryClient }: { childr
   }, [client]);
 
   async function signIn() {
-    if (!client || !account || !networkOk) { setError('Configure Supabase and connect your intended wallet on Sepolia.'); return; }
+    if (!client) { setError(registryConfigurationError ?? 'Frontend Supabase configuration is unavailable.'); return; }
+    if (!account || !networkOk) { setError('Connect your intended wallet on Sepolia before signing in.'); return; }
     if (operationInFlight.current) return;
     operationInFlight.current = true; setBusy(true); setError(null);
     generation.current = { ...generation.current, version: generation.current.version + 1 };
     stateRef.current = null; setState(null);
     const version = generation.current.version; const signingAccount = account;
     await enqueue(async () => {
+      let stage = 'Session cleanup';
       try {
         if (version !== generation.current.version) return;
         const cleanup = await client.auth.signOut({ scope: 'local' });
         if (cleanup.error) throw new Error(signOutFailure);
+        stage = 'Wallet signature';
         const message = createSignInMessage(signingAccount, window.location.origin);
         const signature = await signWalletMessage(message);
         if (version !== generation.current.version) return;
+        stage = 'Supabase authentication';
         const { data, error: authError } = await client.auth.signInWithWeb3({ chain: 'ethereum', message, signature: signature as `0x${string}` });
         if (authError) throw authError;
         const token = data.session.access_token;
+        stage = 'Registration service';
         const snapshot = await registryRequest<RegistrySnapshot>(client, token, { action: 'bootstrap' });
         if (!sameWallet(snapshot.profile.wallet, signingAccount)) throw new Error('The signed session belongs to another wallet.');
         const names = await registryRequest<DirectoryName[]>(client, token, { action: 'directory' });
@@ -92,7 +99,7 @@ export function RegistryProvider({ children, client = registryClient }: { childr
         setState({ ...snapshot, token, scope: signingAccount.toLowerCase(), version, names });
       } catch (cause) {
         await client.auth.signOut({ scope: 'local' }).catch(() => {});
-        if (version === generation.current.version) { setState(null); setError((cause as Error).message); }
+        if (version === generation.current.version) { setState(null); setError(`${stage} failed: ${(cause as Error).message}`); }
       } finally { operationInFlight.current = false; setBusy(false); }
     });
   }
@@ -138,7 +145,8 @@ export function RegistryProvider({ children, client = registryClient }: { childr
   }
   const value: RegistryContextValue = { configured: Boolean(client), authenticated: Boolean(authenticated), busy,
     requiresRegistrationSession: Boolean(authenticated?.application) || needsApplicationSession(account),
-    error: error ?? registryConfigurationError, application: authenticated?.application ?? null,
+    frontendConfigurationError: client ? null : registryConfigurationError,
+    error: error ?? (client ? null : registryConfigurationError), application: authenticated?.application ?? null,
     registeredName: authenticated?.application?.display_name ?? null, isManager: authenticated?.isManager ?? false,
     signIn, signOut, reload, request,
     displayName: wallet => authenticated?.names.find(name => sameWallet(name.wallet, wallet))?.display_name ?? null };

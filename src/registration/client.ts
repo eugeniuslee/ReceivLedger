@@ -1,14 +1,21 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 export function readSupabaseConfiguration(url = '', key = '') {
-  if (!url && !key) return { client: null, configurationError: null };
+  // Vite substitutes these strings during the build, including Vercel Preview
+  // builds. Normalize surrounding copy/paste whitespace, never key privileges.
+  const projectUrl = url.trim();
+  const publishableKey = key.trim();
+  const missing = [!projectUrl && 'VITE_SUPABASE_URL', !publishableKey && 'VITE_SUPABASE_PUBLISHABLE_KEY'].filter(Boolean);
+  if (missing.length) return { client: null, configurationError: `Frontend configuration missing from this build: ${missing.join(', ')}. Set these variables for this Vercel project's Preview environment and create a new build, or set them in .env.local for local development.` };
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(projectUrl);
     if (parsed.protocol !== 'https:' || parsed.pathname !== '/' || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error();
-    // Only the browser publishable key is accepted; never silently accept privileged keys.
-    if (!/^sb_publishable_[A-Za-z0-9_-]+$/.test(key)) throw new Error();
-    return { client: createClient(url, key, { auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false } }), configurationError: null };
-  } catch { return { client: null, configurationError: 'Set a valid Supabase HTTPS Project URL and publishable key in .env.local. Secret/service-role keys are not accepted.' }; }
+  } catch { return { client: null, configurationError: 'Invalid VITE_SUPABASE_URL in this build. Use the HTTPS Project URL root, without wrapping quotes, credentials, API paths, query parameters or fragments.' }; }
+  // Only the browser publishable key is accepted; never silently accept privileged keys.
+  if (!/^sb_publishable_[A-Za-z0-9_-]+$/.test(publishableKey)) return { client: null, configurationError: 'Invalid VITE_SUPABASE_PUBLISHABLE_KEY in this build. Use the raw sb_publishable_ key without wrapping quotes. Secret/service-role keys and legacy JWT keys are not accepted.' };
+  try {
+    return { client: createClient(projectUrl, publishableKey, { auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false } }), configurationError: null };
+  } catch { return { client: null, configurationError: 'Frontend configuration was present, but the Supabase client could not initialize. Check this deployment build and browser support. No authentication or database request has been verified.' }; }
 }
 
 const configuration = readSupabaseConfiguration(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
