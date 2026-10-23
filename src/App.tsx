@@ -16,6 +16,8 @@ import { Documents } from './pages/Documents';
 import { FinanceProvider } from './finance/FinanceContext';
 import { Reports } from './pages/Reports';
 import { Assets } from './pages/Assets';
+import { FundOverview, UnifiedWorkspace } from './v2/UnifiedWorkspace';
+import './v2/v2.css';
 
 function initialRememberPage() {
   try { return window.localStorage.getItem(REMEMBER_PAGE_KEY) !== 'false'; } catch { return true; }
@@ -30,7 +32,7 @@ export function LedgerApp() {
   const [rememberPage, setRememberPage] = useState(initialRememberPage);
   const [selection, setSelection] = useState<{ wallet: string; kind: 'investor' | 'sme' } | null>(null);
   const [submittedWallet, setSubmittedWallet] = useState<string | null>(null);
-  const { account, role, networkOk, walletAvailable, walletChecking, eventIndexComplete, connect, loading, transactionPending, error, eventsError, connectionNotice } = useLedger();
+  const { account, role, networkOk, walletAvailable, walletChecking, eventIndexComplete, connect, loading, transactionPending, error, eventsError, connectionNotice, walletEpoch = 0 } = useLedger();
   const { registeredName, application, requiresRegistrationSession, authenticated } = useRegistry();
   const registrationKind = selection?.wallet === account?.toLowerCase() ? selection?.kind : undefined;
   // An application selects an interface, never a chain permission or role.
@@ -93,6 +95,7 @@ export function LedgerApp() {
         : <><RegistrationSummary onNavigate={navigate} /><Dashboard /></>;
       else if (page === 'applications') content = <Applications />;
       else if (page === 'documents') content = <Documents />;
+      else if (page === 'fund') content = <UnifiedWorkspace />;
       else if (page === 'reports') content = <Reports />;
       else if (page === 'invoices') content = <Invoices mode="list" />;
       else if (page === 'submitInvoice') content = <Invoices mode="submit" />;
@@ -123,6 +126,7 @@ export function LedgerApp() {
         </div>
       </header>
       <p className="prototype-disclosure">University prototype on Sepolia. RLU has no real monetary value; SGD accounting is simulated, with no real payments or redemption. Blockchain records are public.</p>
+      {['assets','invoices','submitInvoice','reports','history'].includes(page)&&<p className="support-copy">V1 records · RLU (0 decimals). V2 fund operations use separate records and RLU2 (2 decimals).</p>}
       {submittedWallet === account.toLowerCase() && <p className="notice info" role="status">Application submitted for review. No on-chain approval was granted.<button className="text-button" onClick={() => setSubmittedWallet(null)}>Dismiss</button></p>}
       {!walletAvailable && <div className="notice info">Enable MetaMask in your browser to connect. Help & Support is available without a wallet.</div>}
       {account && walletAvailable && !networkOk && <div className="notice warning">Select Sepolia in MetaMask (chain ID 11155111) to load your blockchain records.</div>}
@@ -133,7 +137,7 @@ export function LedgerApp() {
       {eventsError && page !== 'history' && <div className="notice error" role="alert">Blockchain history could not be loaded: {eventsError}</div>}
       {transactionPending && <div className="notice pending" role="status">Waiting for MetaMask transaction confirmation. Keep this tab open.</div>}
       {blockchainPage && role && <BlockchainRefresh key={`refresh:${account}`} />}
-      <div key={`content:${account?.toLowerCase() ?? 'disconnected'}`}>{content}</div>
+      <div key={`content:${account?.toLowerCase() ?? 'disconnected'}:${walletEpoch}`}>{content}{page === 'dashboard' && <FundOverview onOpen={() => navigate('fund')} />}</div>
     </main>
   </div>;
 }

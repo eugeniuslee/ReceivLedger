@@ -32,11 +32,31 @@ afterEach(cleanup);
 function openProfileMenu() { fireEvent.click(screen.getByRole('button', { name: /^Account:/ })); }
 
 describe('Stage A wallet navigation and account controls', () => {
+  it.each<WalletRole>(['manager','investor','sme'])('opens the shared fund tools from %s Home', role => {
+    wallet.role=role;
+    render(<LedgerApp />);
+    fireEvent.click(screen.getByRole('button',{name:'Open financing and fund tools'}));
+    expect(screen.getByRole('heading',{level:1}).textContent).toBe('Financing & Fund Requests');
+    expect(screen.getByText('V2 is deployed on Sepolia. Financial execution remains disabled.')).toBeTruthy();
+    expect(screen.queryByRole('navigation',{name:'V2 preview sections'})).toBeNull();
+    expect(wallet.runTransaction).not.toHaveBeenCalled();
+    expect(wallet.signWalletMessage).not.toHaveBeenCalled();
+  });
+  it('restores the shared fund route for the same wallet and clears it on a wallet switch',()=>{
+    window.sessionStorage.setItem(NAVIGATION_KEY,JSON.stringify({account:walletA,page:'fund'}));
+    const view=render(<LedgerApp/>);
+    expect(screen.getByRole('heading',{level:1}).textContent).toBe('Financing & Fund Requests');
+    wallet={...wallet,account:walletB,role:'sme',walletEpoch:1};
+    view.rerender(<LedgerApp/>);
+    expect(screen.getByRole('heading',{level:1}).textContent).toBe('Home');
+    expect(screen.queryByText('V2 is deployed on Sepolia. Financial execution remains disabled.')).toBeNull();
+  });
+
   it('orders the manager workflow and groups support links above the prototype note', () => {
     render(<LedgerApp />);
     const main = screen.getByRole('navigation', { name: 'Main navigation' });
     expect(within(main).getAllByRole('button').map(button => button.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual([
-      'Home', 'Financial Reports', 'Applications', 'Investors', 'Invoices', 'Transaction History',
+      'Home', 'Financial Reports', 'Applications', 'Investors', 'Invoices', 'Transaction History', 'Financing & Fund Requests',
     ]);
     const footer = screen.getByRole('navigation', { name: 'Support navigation' }).parentElement!;
     expect(footer.className).toBe('side-footer');

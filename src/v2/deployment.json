@@ -1,0 +1,9 @@
+{
+  "chainId": 11155111,
+  "address": "0x9672b0aec292c9f8dd8fefbc9daab876b8ec9882",
+  "transactionHash": "0xf0de9a8abb649fb62163cf8e4709349f5b6494f1a0980b8a665c95581a1583a3",
+  "deploymentBlock": 11974932,
+  "manager": "0x79b246212650b686a0e9e5726092b1558b35d974",
+  "runtimeHash": "0x178c217074a782a35c93fab8752cc7980ba850628de4ebf279728bc9d427a12d",
+  "creationDataHash": "0x05c064223cbf7177b86b379f4786bfa4a2e337bca9ffc454703c7ecbed723b0d"
+}

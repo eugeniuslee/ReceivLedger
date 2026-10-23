@@ -221,7 +221,7 @@ describe('restructured onboarding and navigation regressions', () => {
     wallet.role = 'sme';
     render(<LedgerApp />);
     const nav = within(screen.getByRole('navigation', { name: 'Main navigation' }));
-    expect(nav.getAllByRole('button').map(button => button.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual(['Home', 'My Invoices', 'Submit Invoice', 'Transaction History']);
+    expect(nav.getAllByRole('button').map(button => button.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual(['Home', 'My Invoices', 'Submit Invoice', 'Transaction History', 'Financing & Fund Requests']);
     fireEvent.click(nav.getByRole('button', { name: /My Invoices/ }));
     expect(screen.queryByRole('button', { name: 'Submit invoice' })).toBeNull();
     fireEvent.click(nav.getByRole('button', { name: /Submit Invoice/ }));

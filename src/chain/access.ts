@@ -1,6 +1,6 @@
 ﻿import type { WalletRole } from './chainLedger';
 
-export type PageId = 'dashboard' | 'assets' | 'submitInvoice' | 'invoices' | 'investors' | 'transfer' | 'history' | 'profile' | 'settings' | 'help' | 'about' | 'registration' | 'applications' | 'documents' | 'reports';
+export type PageId = 'dashboard' | 'assets' | 'submitInvoice' | 'invoices' | 'investors' | 'transfer' | 'history' | 'profile' | 'settings' | 'help' | 'about' | 'registration' | 'applications' | 'documents' | 'reports' | 'fund';
 export interface NavItem { id: PageId; title: string; icon: string }
 
 export const ROLE_PAGES: Record<WalletRole, NavItem[]> = {
@@ -34,6 +34,7 @@ export const ROLE_PAGES: Record<WalletRole, NavItem[]> = {
 };
 
 export function canAccessPage(role: WalletRole | null, page: PageId): boolean {
+  if (page === 'fund') return role !== null && role !== 'provisional';
   if (page === 'reports') return role === 'manager';
   if (page === 'applications') return role === 'manager';
   if (page === 'registration') return role !== 'manager';
@@ -47,7 +48,7 @@ export function canAccessPage(role: WalletRole | null, page: PageId): boolean {
 
 export function navigationForRole(role: WalletRole | null): NavItem[] {
   if (!role) return [];
-  return ROLE_PAGES[role];
+  return [...ROLE_PAGES[role], ...(role==='provisional'?[]:[{id:'fund' as const,title:'Financing & Fund Requests',icon:'◇'}])];
 }
 
 export const SUPPORT_PAGES: NavItem[] = [

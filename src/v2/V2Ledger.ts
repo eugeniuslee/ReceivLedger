@@ -4,6 +4,7 @@ import { RECEIVLEDGER_ADDRESS } from '../chain/abi';
 import {decodeBytes32String} from 'ethers';
 import {concentrationReport,myAssets,type ReportingInvoice} from './reporting';
 import policyErrors from './policyErrors.json';
+import { V2_EXECUTION_ENABLED, V2_EXECUTION_LOCK } from './activation';
 /** Explicit independent V2 address only. Nothing reads an address from V1 configuration. */
 export class V2Ledger {
   readonly contract: Contract;
@@ -20,35 +21,48 @@ export class V2Ledger {
     const values = await Promise.all(names.map(name => this.contract.getFunction(name)({blockTag})));
     if (values[0] !== 1_000_000_000n||values[1]!==10_000_000n) throw new Error('Unexpected V2 contract policy.');
     const [units,approvedInvestor,verifiedSme] = await Promise.all(['balanceOf','investors','verifiedSmes'].map(name=>this.contract.getFunction(name)(wallet,{blockTag})));
-    return { blockTag, wallet, units: BigInt(units), approvedInvestor: Boolean(approvedInvestor), verifiedSme: Boolean(verifiedSme), fund: Object.fromEntries(names.map((name,index)=>[name,values[index]])) };
+    const entity = String(await this.contract.getFunction('investorEntities')(wallet,{blockTag}));
+    const automaticUsedCents = BigInt(await this.contract.getFunction('automaticSubscriptionCents')(entity,{blockTag}));
+    return { entity, automaticUsedCents, blockTag, wallet, units: BigInt(units), approvedInvestor: Boolean(approvedInvestor), verifiedSme: Boolean(verifiedSme), fund: Object.fromEntries(names.map((name,index)=>[name,values[index]])) };
   }
   async readReport(wallet:string){
     const snapshot=await this.readFund(wallet),provider=this.contract.runner!.provider!,blockTag=snapshot.blockTag;
     const block=await provider.getBlock(blockTag);if(!block)throw new Error('Reporting block unavailable');
-    const invoiceCount=Number(snapshot.fund.invoiceCount),redemptionCount=Number(snapshot.fund.redemptionCount);
-    if(invoiceCount>1000||redemptionCount>1000)throw new Error('Complete report exceeds the prototype 1000-record bound. Use a reviewed indexer; partial totals are not displayed.');
-    const invoices:ReportingInvoice[]=[];let pendingUnits=0n,allocatedClaim=0n;
+    const invoiceCount=Number(snapshot.fund.invoiceCount),redemptionCount=Number(snapshot.fund.redemptionCount),subscriptionCount=Number(snapshot.fund.subscriptionCount);
+    if(invoiceCount>1000||redemptionCount>1000||subscriptionCount>1000)throw new Error('Complete report exceeds the prototype 1000-record bound. Use a reviewed indexer; partial totals are not displayed.');
+    const invoices:ReportingInvoice[]=[];
+    const subscriptions:{id:bigint;investor:string;cents:bigint;minimumUnits:bigint;funded:boolean;reviewed:boolean;status:bigint}[]=[];
+    const redemptions:{id:bigint;investor:string;units:bigint;minimumCents:bigint;payoutCents:bigint;status:bigint}[]=[];
+    let pendingUnits=0n,allocatedClaim=0n;
     for(let first=1;first<=invoiceCount;first+=10){
       const page=await Promise.all(Array.from({length:Math.min(10,invoiceCount-first+1)},async(_,offset)=>{
         const id=BigInt(first+offset),[i,a]=await Promise.all([this.contract.getFunction('invoices')(id,{blockTag}),this.contract.getFunction('invoiceAccounting')(id,{blockTag})]);
-        return {id,entity:String(i.entity),payer:String(i.payer),face:BigInt(i.face),advance:BigInt(i.advance),principal:BigInt(i.principal),commitment:BigInt(i.commitment),maturity:BigInt(i.maturity),status:BigInt(i.status),collectedBase:BigInt(a.collectedBaseCents),collectedOverdue:BigInt(a.collectedOverdueCents),collectedPrincipal:BigInt(a.collectedPrincipalCents)};
+        return {id,sme:String(i.sme),breakdown:{netAdvance:BigInt(a.netCashAdvancedCents),fee:BigInt(a.feeIncomeCents),principal:BigInt(a.principalReceivableCents),baseInterest:BigInt(a.accruedBaseCents),overdueInterest:BigInt(a.accruedOverdueCents),payerCollections:BigInt(a.payerCollectionsCents),smeCollections:BigInt(a.smeCollectionsCents),reserve:BigInt(a.reservePayableCents),released:BigInt(a.reserveReleasedCents)},entity:String(i.entity),payer:String(i.payer),face:BigInt(i.face),advance:BigInt(i.advance),principal:BigInt(i.principal),commitment:BigInt(i.commitment),maturity:BigInt(i.maturity),status:BigInt(i.status),collectedBase:BigInt(a.collectedBaseCents),collectedOverdue:BigInt(a.collectedOverdueCents),collectedPrincipal:BigInt(a.collectedPrincipalCents)};
       }));invoices.push(...page);
+    }
+    for(let first=1;first<=subscriptionCount;first+=10){
+      const page=await Promise.all(Array.from({length:Math.min(10,subscriptionCount-first+1)},async(_,offset)=>{
+        const id=BigInt(first+offset),s=await this.contract.getFunction('subscriptions')(id,{blockTag});
+        return {id,investor:String(s.investor),cents:BigInt(s.cents),minimumUnits:BigInt(s.minimumUnits),funded:Boolean(s.funded),reviewed:Boolean(s.reviewed),status:BigInt(s.status)};
+      })); subscriptions.push(...page);
     }
     for(let first=1;first<=redemptionCount;first+=10){
       const page=await Promise.all(Array.from({length:Math.min(10,redemptionCount-first+1)},(_,offset)=>this.contract.getFunction('redemptions')(first+offset,{blockTag})));
+      page.forEach((r,offset)=>redemptions.push({id:BigInt(first+offset),investor:String(r.investor),units:BigInt(r.units),minimumCents:BigInt(r.minimumCents),payoutCents:BigInt(r.payoutCents),status:BigInt(r.status)}));
       for(const r of page)if(String(r.investor).toLowerCase()===wallet.toLowerCase()){
         if(r.status===0n||r.status===1n)pendingUnits+=BigInt(r.units);if(r.status===2n)allocatedClaim+=BigInt(r.payoutCents);
       }
     }
     const fromBlock=Math.max(0,blockTag-9999);
     const movements=await this.readMovements(fromBlock,blockTag);
-    return {...snapshot,timestamp:BigInt(block.timestamp),concentrations:concentrationReport(invoices,BigInt(snapshot.fund.navCents),BigInt(block.timestamp)),
+    return {...snapshot,invoices,subscriptions,redemptions,timestamp:BigInt(block.timestamp),concentrations:concentrationReport(invoices,BigInt(snapshot.fund.navCents),BigInt(block.timestamp)),
       assets:myAssets(BigInt(snapshot.fund.navCents),BigInt(snapshot.fund.pricingUnits),snapshot.units,pendingUnits,allocatedClaim),movements,movementsFromBlock:fromBlock};
   }
   async readMovements(fromBlock:number,toBlock:number){
     if(!Number.isSafeInteger(fromBlock)||!Number.isSafeInteger(toBlock)||fromBlock<0||toBlock<fromBlock||toBlock-fromBlock>=10000)throw new Error('Read at most 10000 blocks per movement page');
     const provider=this.contract.runner?.provider;if(!provider||(await provider.getNetwork()).chainId!==11155111n)throw new Error('Sepolia required');
-    const logs=await this.contract.queryFilter(this.contract.filters.NavMovement(),fromBlock,toBlock);
+    const logs:Awaited<ReturnType<typeof this.contract.queryFilter>>=[];
+    for(let first=fromBlock;first<=toBlock;first+=2000) logs.push(...await this.contract.queryFilter(this.contract.filters.NavMovement(),first,Math.min(first+1999,toBlock)));
     return logs.map(log=>{
       const event=this.contract.interface.parseLog(log);if(!event)throw new Error('Invalid accounting event');const a=event.args;
       return {timestamp:BigInt(a.timestamp),reference:BigInt(a.refId),kind:decodeBytes32String(a.kind),cash:BigInt(a.cash),loans:BigInt(a.loans),income:BigInt(a.income),nav:BigInt(a.nav),transaction:log.transactionHash,block:log.blockNumber,index:log.index};
@@ -58,6 +72,7 @@ export class V2Ledger {
   async execute(method: 'requestSubscription'|'requestRedemption'|'cancelSubscription'|'cancelRedemption'|'transfer'|'submitInvoice'|'approveInvoice'|'rejectInvoice'|'financeInvoice'|'recordCollection'|'approveSubscription'|'processSubscription'|'approveRedemption'|'allocateRedemption'|'settleRedemption', args: readonly unknown[]) {
     const runner=this.contract.runner;
     if (!runner?.sendTransaction || !runner.provider || (await runner.provider.getNetwork()).chainId!==11155111n) throw new Error('An explicitly connected Sepolia signer is required.');
+    if (!V2_EXECUTION_ENABLED) throw new Error(V2_EXECUTION_LOCK);
     let tx;
     try{tx=await this.contract.getFunction(method)(...args);}catch(cause){
       const data=(cause as {data?:string}).data;

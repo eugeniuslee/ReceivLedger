@@ -1,4 +1,5 @@
 export interface ReportingInvoice {
+  sme?:string;breakdown?:{netAdvance:bigint;fee:bigint;principal:bigint;baseInterest:bigint;overdueInterest:bigint;payerCollections:bigint;smeCollections:bigint;reserve:bigint;released:bigint};
   id:bigint;entity:string;payer:string;face:bigint;advance:bigint;principal:bigint;commitment:bigint;maturity:bigint;status:bigint;
   collectedBase:bigint;collectedOverdue:bigint;collectedPrincipal:bigint;
 }

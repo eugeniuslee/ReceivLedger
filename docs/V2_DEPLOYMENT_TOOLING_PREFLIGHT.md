@@ -1,3 +1,7 @@
+# Current deployed V2 status
+
+V2 is deployed at 0x9672b0aec292c9f8dd8fefbc9daab876b8ec9882 on Sepolia, block 11974932. [Read-only verification](V2_DEPLOYMENT_VERIFICATION.md) confirms the supplied receipt, exact reviewed runtime/creation/ABI and Manager. Financial execution, private V2 onboarding and automation workers remain inactive/incomplete. Do not deploy again. The pre-deployment wording and action lists below are historical.
+
 # V2 deployment tooling preflight — 23 October 2026
 
 Repository: `C:\Users\Eugen\Documents\GitHub\ReceivLedger`, branch `feat/v2-financing-redemption`.

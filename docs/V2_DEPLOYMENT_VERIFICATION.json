@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "verification": "PASS",
+  "verificationMode": "READ_ONLY_RPC_AND_LOCAL_COMPILATION",
+  "chainId": 11155111,
+  "address": "0x9672b0aec292c9f8dd8fefbc9daab876b8ec9882",
+  "transactionHash": "0xf0de9a8abb649fb62163cf8e4709349f5b6494f1a0980b8a665c95581a1583a3",
+  "deploymentBlock": 11974932,
+  "manager": "0x79b246212650b686a0e9e5726092b1558b35d974",
+  "runtimeHash": "0x178c217074a782a35c93fab8752cc7980ba850628de4ebf279728bc9d427a12d",
+  "creationDataHash": "0x05c064223cbf7177b86b379f4786bfa4a2e337bca9ffc454703c7ecbed723b0d",
+  "deployedAtUtc": "2026-10-23T06:39:24.000Z",
+  "readBlock": 11975073,
+  "readBlockHash": "0x19821a32147970670be585b961687b4bee35748e762c0148ba987d167165c263",
+  "readBlockTimeUtc": "2026-10-23T07:08:00.000Z",
+  "confirmations": 142,
+  "receiptStatus": 1,
+  "deployer": "0x79b246212650b686a0e9E5726092B1558B35D974",
+  "nonce": 26,
+  "type": 2,
+  "valueWei": "0",
+  "runtimeBytes": 23735,
+  "creationBytesWithArguments": 24776,
+  "compiler": "0.8.38+commit.1835d247.Emscripten.clang",
+  "settings": {
+    "optimizerRuns": 200,
+    "viaIR": true,
+    "evmVersion": "cancun",
+    "openzeppelin": "5.6.1"
+  },
+  "sourceSha256": "15092c6c595fcc186c2dab03e367c5b3f3343441cde5c2a32c76de7309eee14c",
+  "abiSha256": "39984ac3e3a284ff01e0a842ab1b2051ce44d21d98e2c24b3a78df536fe03bd6",
+  "abiMatchesCompilation": true,
+  "runtimeMatchesCompilation": true,
+  "creationMatchesCompilation": true,
+  "state": {
+    "owner": "0x79b246212650b686a0e9E5726092B1558B35D974",
+    "pendingOwner": "0x0000000000000000000000000000000000000000",
+    "automationEnabled": false,
+    "paused": false,
+    "totalSupply": "0",
+    "navCents": "0",
+    "liquidCents": "0",
+    "outstandingCents": "0",
+    "invoiceCount": "0",
+    "subscriptionCount": "0",
+    "redemptionCount": "0",
+    "newInvoiceOverdueBps": "0"
+  },
+  "managerPermissions": {
+    "currentOwner": true,
+    "explicitExecutor": false,
+    "explicitAttestor": false,
+    "ownerImplicitExecutorAndAttestor": true,
+    "basis": "owner() matches and exact compiled runtime retains reviewed onlyOwner / owner-or-operator permissions; no state-changing call was sent."
+  },
+  "limits": [
+    "Snapshot only; future permissions/balances may change.",
+    "Explorer source publication was not verified.",
+    "Private registry, document binding, automation workers and signed frontend execution were not activated or tested live."
+  ]
+}

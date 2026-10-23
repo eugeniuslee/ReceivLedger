@@ -1,14 +1,14 @@
 # ReceivLedger
 
-Final local [deployment-readiness review](docs/V2_DEPLOYMENT_READINESS.md): confirmed Manager/deployer, unsigned offline package, 90 Solidity tests and 372 frontend/database tests. No deployment or hosted change has occurred.
+Start with the current [developer handover](HANDOVER.md) and [testing checklist](TESTING_CHECKLIST.md) for integration, final verification, inactive features and release blockers. Earlier [contract review](docs/V2_DEPLOYMENT_READINESS.md) is historical evidence; [deployment tooling preflight](docs/V2_DEPLOYMENT_TOOLING_PREFLIGHT.md) supersedes its older gas guidance.
 
 React 18, TypeScript, Vite 5 and ethers v6 frontend for the deployed ReceivLedger contract. V1 dashboard and workflow data is read from Sepolia; its live views do not use a fictional in-browser ledger.
 
-## Current local work: independent V2 prototype
+## Current local work: unified website and developer handover
 
 Current V2 rules, accrual pricing, registration gate and verification: [V2 business rules](docs/V2_BUSINESS_RULES.md).
 
-Branch `feat/v2-financing-redemption` starts from main `3b30578`. See [V2 implementation and activation plan](docs/V2.md) for the new local contract, NAV/redemption/loan accounting, wallet switching fixes, tests, migration proposal and approval gates. V1 remains at `/`; the explicitly unactivated V2 preview is `/v2.html`. No live contract or Supabase change is part of this work.
+Branch `feat/v2-financing-redemption` starts from main `3b30578`. See [V2 implementation and activation plan](docs/V2.md) for the new local contract, NAV/redemption/loan accounting, wallet switching fixes, tests, migration proposal and approval gates. V2 is deployed and verified on Sepolia at `0x9672b0aec292c9f8dd8fefbc9daab876b8ec9882`; see [read-only deployment evidence](docs/V2_DEPLOYMENT_VERIFICATION.md). The unified website is at `/`; fund tools are inside the existing role dashboards. `/v2.html` redirects to the same website. No live contract or Supabase change is part of this work.
 
 ## Previous live-testing fixes
 
@@ -37,7 +37,7 @@ npm run build     # production output in dist/
 npm run preview   # locally serve dist/
 ```
 
-## Sepolia configuration
+## Existing V1 Sepolia configuration
 
 The frontend is configured in `src/chain/abi.ts` for:
 
@@ -83,7 +83,7 @@ A private GitHub repository does not make the deployed frontend or its bundled c
 
 On Windows PowerShell, if `npm` is blocked by script execution policy, use `npm.cmd` for these commands without changing the execution policy.
 
-## Contract and frontend limitations
+## Existing V1 limitations and shared frontend security
 
 - `totalFundSize`, `availableFunds`, invoice financing and repayment are simulated S$ accounting. They are not cash balances or SGD/ETH transfers. RLU has 0 decimals.
 - The contract has no SME registration or verification mechanism. Any connected non-manager wallet can submit an invoice; the submitting wallet is stored as the SME address. The frontend only grants the invoice-wallet view when a stored invoice maps to the address; this does not establish a real-world identity. Other unverified wallets remain provisional but can still use the contract's existing open submission function.

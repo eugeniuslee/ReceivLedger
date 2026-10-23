@@ -1,3 +1,7 @@
+# Deployed contract status
+
+V2 is now deployed and verified at 0x9672b0aec292c9f8dd8fefbc9daab876b8ec9882 on Sepolia. See [deployment verification](V2_DEPLOYMENT_VERIFICATION.md) for exact receipt/code/ABI/Manager evidence. Backend identity/document integration, automation workers and financial UI execution remain inactive/incomplete. Pre-deployment wording below records earlier review stages; no additional deployment is needed.
+
 # V2 final business rules, registration and risk review
 
 The later [final deployment-readiness review](V2_DEPLOYMENT_READINESS.md) records the confirmed Manager/deployer, 90 Solidity tests, corrected cold-state gas estimates and two focused fixes: unresolved-loan final exits and rejected-evidence recovery. Its deployment results supersede the earlier verification figures below; these business limits and accrual policy remain in effect.
