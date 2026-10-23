@@ -36,16 +36,16 @@ async function restorePrivateSession(client: SupabaseClient, session: Session, w
 }
 
 export function RegistryProvider({ children, client = registryClient }: { children: ReactNode; client?: SupabaseClient | null }) {
-  const { account, networkOk, walletChecking, signWalletMessage } = useLedger();
+  const { account, networkOk, walletChecking, walletEpoch = 0, signWalletMessage } = useLedger();
   const scope = account && networkOk ? account.toLowerCase() : '';
-  const generation = useRef({ scope, version: 0 });
-  if (generation.current.scope !== scope) generation.current = { scope, version: generation.current.version + 1 };
+  const generation = useRef({ scope, epoch: walletEpoch, version: 0 });
+  if (generation.current.scope !== scope || generation.current.epoch !== walletEpoch) generation.current = { scope, epoch: walletEpoch, version: generation.current.version + 1 };
   const [state, setState] = useState<AuthenticatedState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const operationInFlight = useRef(false);
-  const previousScope = useRef<string | null>(null);
+  const previousScope = useRef<{ scope: string; epoch: number } | null>(null);
   const expectedSignOut = useRef(false);
   const authenticated = state && state.scope === scope && state.version === generation.current.version && sameWallet(state.profile.wallet, account) ? state : null;
   const stateRef = useRef(authenticated); stateRef.current = authenticated;
@@ -66,8 +66,8 @@ export function RegistryProvider({ children, client = registryClient }: { childr
     // Wait for the initial passive wallet lookup. A real disconnect/network or
     // wallet change still invalidates the session immediately through generation.
     if (previousScope.current === null && !scope && walletChecking) return;
-    const walletChanged = previousScope.current !== null && previousScope.current !== scope;
-    previousScope.current = scope;
+    const walletChanged = previousScope.current !== null && (previousScope.current.scope !== scope || previousScope.current.epoch !== walletEpoch);
+    previousScope.current = { scope, epoch: walletEpoch };
     if (!walletChanged && stateRef.current) return;
     let active = true;
     setState(null); setError(null);
@@ -99,7 +99,7 @@ export function RegistryProvider({ children, client = registryClient }: { childr
       } finally { if (active && version === generation.current.version) setBusy(false); }
     });
     return () => { active = false; };
-  }, [scope, walletChecking, client, enqueue, clearClientSession]);
+  }, [scope, walletEpoch, walletChecking, client, enqueue, clearClientSession]);
 
   useEffect(() => {
     if (!client) return;

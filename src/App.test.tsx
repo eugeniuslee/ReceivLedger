@@ -19,7 +19,7 @@ let wallet: ReturnType<typeof useLedger>;
 beforeEach(() => {
   resetBrowserStorage();
   wallet = {
-    account: walletA, role: 'manager', networkOk: true, walletAvailable: true, walletChecking: false,
+    account: walletA, role: 'manager', networkOk: true, walletAvailable: true, walletChecking: false, walletEpoch: 0,
     isManager: true, isInvestor: false, isSme: false, snapshot: null, events: [], eventIndexComplete: true,
     loading: false, eventsLoading: false, transactionPending: false, error: null, eventsError: null, connectionNotice: null,
     connect: vi.fn(), disconnect: vi.fn(), signWalletMessage: vi.fn(), refresh: vi.fn().mockResolvedValue(undefined), refreshEvents: vi.fn().mockResolvedValue(undefined),

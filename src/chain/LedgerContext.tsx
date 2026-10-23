@@ -20,6 +20,7 @@ interface LedgerContextValue {
   networkOk: boolean;
   walletAvailable: boolean;
   walletChecking: boolean;
+  walletEpoch: number;
   snapshot: RoleSnapshot | null;
   events: ChainEvent[];
   eventIndexComplete: boolean;
@@ -78,6 +79,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [connectionNotice, setConnectionNotice] = useState<string | null>(null);
   const [walletRevision, setWalletRevision] = useState(0);
+  const [walletEpoch, setWalletEpoch] = useState(0);
   const walletVersion = useRef(0);
   const syncSequence = useRef(0);
   const essentialSequence = useRef(0);
@@ -91,7 +93,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   const eventFlightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
   const disconnectedByUser = useRef(false);
 
-  const provider = useMemo(() => injected ? new BrowserProvider(injected) : null, [injected]);
+  const provider = useMemo(() => injected ? new BrowserProvider(injected, 'any', { cacheTimeout: -1 }) : null, [injected]);
   const ledger = useMemo(() => provider ? new ChainLedger(RECEIVLEDGER_ADDRESS, provider) : null, [provider]);
 
   useEffect(() => {
@@ -135,6 +137,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       const accountChanged = didWalletAddressChange(accountRef.current, nextAccount);
       const networkChanged = networkOkRef.current !== nextNetworkOk;
       if (accountChanged || networkChanged) {
+        setWalletEpoch(epoch => epoch + 1);
         walletVersion.current += 1;
         essentialSequence.current += 1;
         historySequence.current += 1;
@@ -190,7 +193,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
       if (disconnectedByUser.current) return;
       const nextAccount = Array.isArray(value) && value[0] ? String(value[0]) : null;
       const accountChanged = didWalletAddressChange(accountRef.current, nextAccount);
-      if (accountChanged) clearForWalletChange();
+      if (accountChanged) { setWalletEpoch(epoch => epoch + 1); clearForWalletChange(); }
       else {
         invalidateRequests();
         setError(null);
@@ -207,12 +210,14 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     const onChainChanged = () => {
       if (disconnectedByUser.current) return;
       clearForWalletChange();
+      setWalletEpoch(epoch => epoch + 1);
       networkOkRef.current = false;
       setNetworkOk(false);
       setWalletChecking(true);
       void synchronizeWallet(false);
     };
     const onDisconnect = () => {
+      setWalletEpoch(epoch => epoch + 1);
       clearForWalletChange();
       accountRef.current = null;
       networkOkRef.current = false;
@@ -379,6 +384,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   const disconnect = useCallback(async () => {
     if (transactionPending || !injected) return;
     disconnectedByUser.current = true;
+    setWalletEpoch(epoch => epoch + 1);
     walletVersion.current += 1;
     syncSequence.current += 1;
     essentialSequence.current += 1;
@@ -422,7 +428,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
         provider!.send('eth_chainId', []) as Promise<string>,
       ]);
       if (Number(BigInt(activeChainId)) !== SEPOLIA_CHAIN_ID) throw new Error('Switch MetaMask to Sepolia before sending a transaction.');
-      if (!activeAccounts.some(activeAccount => activeAccount.toLowerCase() === account.toLowerCase())) throw new Error('The connected MetaMask account changed. Refresh wallet access before continuing.');
+      if (activeAccounts[0]?.toLowerCase() !== account.toLowerCase()) throw new Error('The connected MetaMask account changed. Refresh wallet access before continuing.');
       const signer = await provider!.getSigner(account);
       const signerLedger = new ChainLedger(RECEIVLEDGER_ADDRESS, signer);
       const activeRole = await signerLedger.classifyWallet(account);
@@ -464,6 +470,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     networkOk,
     walletAvailable: Boolean(injected),
     walletChecking,
+    walletEpoch,
     snapshot,
     events,
     eventIndexComplete,

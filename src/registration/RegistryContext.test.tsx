@@ -14,7 +14,7 @@ vi.mock('./client', async original => {
 });
 const alice = '0x2222222222222222222222222222222222222222';
 const bob = '0x3333333333333333333333333333333333333333';
-let wallet: { account: string | null; networkOk: boolean; signWalletMessage: ReturnType<typeof vi.fn> };
+let wallet: { account: string | null; networkOk: boolean; walletEpoch?: number; signWalletMessage: ReturnType<typeof vi.fn> };
 let client: SupabaseClient;
 let signOut: ReturnType<typeof vi.fn>; let signIn: ReturnType<typeof vi.fn>; let getSession: ReturnType<typeof vi.fn>;
 let authListener: (event: AuthChangeEvent, session: Session | null) => void;
@@ -275,5 +275,19 @@ describe('React StrictMode and token refresh', () => {
     await current.request({ action: 'documents' });
     expect(registryRequest).toHaveBeenLastCalledWith(client, 'refreshed-memory-session', { action: 'documents' });
     expect(wallet.signWalletMessage).toHaveBeenCalledOnce(); expect(signIn).toHaveBeenCalledOnce();
+  });
+});
+
+
+describe('batched wallet identity changes', () => {
+  it('invalidates private data and pending reads on a batched A/B/A epoch change', async () => {
+    const view = render(<RegistryProvider client={client}><Probe /></RegistryProvider>); await authenticate();
+    let finish!: (data: unknown) => void;
+    vi.mocked(registryRequest).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const pending = current.request({ action: 'documents' }); const discarded = expect(pending).rejects.toThrow('discarded');
+    wallet = { ...wallet, walletEpoch: 2 }; view.rerender(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    expect(current.application).toBeNull(); expect(current.authenticated).toBe(false);
+    await act(async () => { finish([{ filename: 'old-wallet.pdf' }]); await discarded; });
+    expect(current.authenticated).toBe(false);
   });
 });

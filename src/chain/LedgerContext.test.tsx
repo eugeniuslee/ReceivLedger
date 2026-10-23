@@ -16,6 +16,7 @@ const walletA = '0x1111111111111111111111111111111111111111';
 const walletB = '0x2222222222222222222222222222222222222222';
 const manager = '0x3333333333333333333333333333333333333333';
 let accounts: string[];
+let selectedChain: string;
 let listeners: Record<string, (...args: unknown[]) => void>;
 let request: ReturnType<typeof vi.fn>;
 let current: ReturnType<typeof useLedger>;
@@ -25,13 +26,13 @@ function snapshot(role: 'provisional' | 'investor'): RoleSnapshot {
 }
 beforeEach(() => {
   resetBrowserStorage();
-  accounts = [walletA]; listeners = {};
+  accounts = [walletA]; selectedChain = '0xaa36a7'; listeners = {};
   calls.read.mockReset().mockResolvedValue(snapshot('provisional'));
   calls.classify.mockReset().mockResolvedValue({ role: 'provisional', manager, approved: false, balance: 0n });
   calls.events.mockReset().mockResolvedValue([]);
   request = vi.fn(async ({ method }: { method: string }) => {
     if (method === 'eth_accounts' || method === 'eth_requestAccounts') return accounts;
-    if (method === 'eth_chainId') return '0xaa36a7';
+    if (method === 'eth_chainId') return selectedChain;
     if (method === 'eth_blockNumber') return '0xb644ee';
     if (method === 'wallet_revokePermissions') return null;
     throw new Error(`Unexpected RPC: ${method}`);
@@ -57,7 +58,7 @@ describe('wallet provider refresh and disconnection', () => {
     request.mockImplementation(async ({ method }: { method: string }) => {
       if (method === 'eth_requestAccounts') throw { code: 4001, message: '{sensitive provider JSON}' };
       if (method === 'eth_accounts') return [];
-      if (method === 'eth_chainId') return '0xaa36a7';
+      if (method === 'eth_chainId') return selectedChain;
       throw new Error('Unexpected request');
     });
     await act(async () => { await current.connect(); });
@@ -195,4 +196,42 @@ describe('confirmed transaction with unavailable refreshed records', () => {
     expect(current.snapshot?.role === 'manager' && current.snapshot.availableFunds).toBe(1100n);
     expect(current.transactionPending).toBe(false);
   });
+});
+
+
+describe('rapid wallet changes', () => {
+  it('ignores out-of-order A/B/A reads and advances the wallet epoch even when the final address is unchanged', async () => {
+    await mountWallet(); const initialEpoch = current.walletEpoch;
+    let finishB!: (value: RoleSnapshot) => void;
+    calls.read.mockImplementationOnce(() => new Promise(resolve => { finishB = resolve; }));
+    accounts = [walletB]; await act(async () => { listeners.accountsChanged(accounts); });
+    await waitFor(() => expect(current.account).toBe(walletB));
+    calls.read.mockResolvedValue(snapshot('investor'));
+    accounts = [walletA]; await act(async () => { listeners.accountsChanged(accounts); });
+    await waitFor(() => expect(current.role).toBe('investor'));
+    await act(async () => { finishB(snapshot('provisional')); });
+    expect(current.account).toBe(walletA); expect(current.role).toBe('investor'); expect(current.walletEpoch).toBeGreaterThan(initialEpoch);
+  });
+  it('shows connection entry when the selected account has not authorised the site', async () => {
+    await mountWallet(); accounts = [];
+    await act(async () => { listeners.accountsChanged([]); });
+    expect(current.account).toBeNull(); expect(current.snapshot).toBeNull(); expect(current.events).toEqual([]);
+    expect(request.mock.calls.some(([input]) => input.method === 'eth_requestAccounts')).toBe(false);
+  });
+  it('rejects an old signer that is still authorised but is no longer the selected account', async () => {
+    calls.read.mockResolvedValue(snapshot('investor')); await mountWallet();
+    accounts = [walletB, walletA];
+    const operation = vi.fn();
+    await act(async () => { await expect(current.runTransaction('investor', operation)).rejects.toThrow('account changed'); });
+    expect(operation).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('network changes without a browser reload',()=>{
+ it('clears old chain data then recognises the wallet again when Sepolia returns',async()=>{
+  calls.read.mockResolvedValue(snapshot('investor'));await mountWallet();
+  selectedChain='0x1';await act(async()=>{listeners.chainChanged('0x1');});await waitFor(()=>expect(current.networkOk).toBe(false));expect(current.snapshot).toBeNull();
+  selectedChain='0xaa36a7';await act(async()=>{listeners.chainChanged(selectedChain);});await waitFor(()=>expect(current.networkOk&&current.role==='investor').toBe(true));expect(current.account).toBe(walletA);
+ });
 });

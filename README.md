@@ -1,10 +1,18 @@
 # ReceivLedger
 
-React 18, TypeScript, Vite 5 and ethers v6 frontend for the deployed ReceivLedger contract. All dashboard and workflow data is read from Sepolia; this app does not use a fictional in-browser ledger.
+Final local [deployment-readiness review](docs/V2_DEPLOYMENT_READINESS.md): confirmed Manager/deployer, unsigned offline package, 90 Solidity tests and 372 frontend/database tests. No deployment or hosted change has occurred.
 
-## Current local work: live-testing fixes
+React 18, TypeScript, Vite 5 and ethers v6 frontend for the deployed ReceivLedger contract. V1 dashboard and workflow data is read from Sepolia; its live views do not use a fictional in-browser ledger.
 
-Current branch: `fix/live-testing-auth-invoices`, based on fetched main `ad34f4c`. See [Live-testing fixes](docs/LIVE_TESTING_FIXES.md) for the confirmed missing manager Supabase identity, secure memory-session reuse, public invoice/private document separation, receipt-based feedback, tests and acceptance steps. The previously approved production origin is working. Changes remain uncommitted and unpublished.
+## Current local work: independent V2 prototype
+
+Current V2 rules, accrual pricing, registration gate and verification: [V2 business rules](docs/V2_BUSINESS_RULES.md).
+
+Branch `feat/v2-financing-redemption` starts from main `3b30578`. See [V2 implementation and activation plan](docs/V2.md) for the new local contract, NAV/redemption/loan accounting, wallet switching fixes, tests, migration proposal and approval gates. V1 remains at `/`; the explicitly unactivated V2 preview is `/v2.html`. No live contract or Supabase change is part of this work.
+
+## Previous live-testing fixes
+
+Previous review branch: `fix/live-testing-auth-invoices`, based on fetched main `ad34f4c`. See [Live-testing fixes](docs/LIVE_TESTING_FIXES.md) for the confirmed missing manager Supabase identity, secure memory-session reuse, public invoice/private document separation, receipt-based feedback, tests and acceptance steps. The previously approved production origin is working. Changes remain uncommitted and unpublished.
 
 ## Previous interface restructuring
 

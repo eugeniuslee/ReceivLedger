@@ -6,8 +6,8 @@ import type { FinancialSnapshot } from './models';
 interface FinanceValue { data: FinancialSnapshot | null; loading: boolean; error: string | null; now: bigint; refresh: () => Promise<void> }
 const FinanceContext = createContext<FinanceValue>({ data: null, loading: false, error: null, now: BigInt(Math.floor(Date.now() / 1000)), refresh: async () => {} });
 export function FinanceProvider({ children }: { children: ReactNode }) {
-  const { account, role, networkOk, ledger, snapshot } = useLedger();
-  const key = account && role && networkOk ? `${account.toLowerCase()}:${role}` : '';
+  const { account, role, networkOk, ledger, snapshot, walletEpoch = 0 } = useLedger();
+  const key = account && role && networkOk ? `${account.toLowerCase()}:${role}:${walletEpoch}` : '';
   const identity = useRef({ key, version: 0 });
   if (identity.current.key !== key) identity.current = { key, version: identity.current.version + 1 };
   const sequence = useRef(0);

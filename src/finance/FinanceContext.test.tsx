@@ -102,3 +102,12 @@ describe('financial refresh after confirmed wallet snapshot updates', () => {
     expect(current.data?.availableFunds).toBe(1100n); expect(current.data?.totalFundSize).toBe(1100n);
   });
 });
+
+
+describe('financial state across batched wallet changes', () => {
+ it('discards previous values when an A/B/A identity epoch changes despite the same final wallet',async()=>{
+  const view=render(<FinanceProvider><Probe/></FinanceProvider>);await waitFor(()=>expect(current.data).not.toBeNull());
+  const next=deferred();read.mockReturnValueOnce(next.promise);wallet={...wallet,walletEpoch:2};view.rerender(<FinanceProvider><Probe/></FinanceProvider>);
+  expect(current.data).toBeNull();await act(async()=>next.resolve(testSnapshot({connectedBalance:7n})));expect(current.data?.connectedBalance).toBe(7n);
+ });
+});
