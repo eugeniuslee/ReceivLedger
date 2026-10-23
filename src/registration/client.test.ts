@@ -20,10 +20,10 @@ describe('frontend configuration diagnostics and validation', () => {
     expect(result.configurationError).not.toContain(key);
     expect(createClient).not.toHaveBeenCalled();
   });
-  it('accepts surrounding copy/paste whitespace while retaining memory-only authentication', () => {
+  it('accepts surrounding copy/paste whitespace with same-tab session persistence', () => {
     const result = readSupabaseConfiguration(` \n${url}\t`, `\t${key}\n `);
     expect(result.client).not.toBeNull(); expect(result.configurationError).toBeNull();
-    expect(createClient).toHaveBeenCalledWith(url, key, { auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false } });
+    expect(createClient).toHaveBeenCalledWith(url, key, expect.objectContaining({ auth: expect.objectContaining({ persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }) }));
   });
   it.each(['https://user:password@configuration-test.supabase.co', `${url}/rest/v1`, `${url}?query=1`, `${url}#fragment`, 'http://configuration-test.supabase.co', `"${url}"`])('rejects invalid project URL syntax without echoing it: %#', projectUrl => {
     const result = readSupabaseConfiguration(projectUrl, key);

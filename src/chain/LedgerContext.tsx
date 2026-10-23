@@ -5,6 +5,7 @@ import { ChainLedger, CONTRACT_DEPLOYMENT_BLOCK, filterInvestorEvents, filterInv
 import { eventCacheKey, loadEventCache, mergeChainEvents, saveEventCache, type EventCacheEntry } from './eventCache';
 import { didWalletAddressChange, isCurrentWalletRequest } from './requestGuard';
 import { walletErrorMessage } from '../errors';
+import { useV2ManagerAuthority } from './managerAuthority';
 
 type InjectedWallet = Eip1193Provider & {
   on: (event: string, listener: (...args: unknown[]) => void) => void;
@@ -14,6 +15,10 @@ type InjectedWallet = Eip1193Provider & {
 interface LedgerContextValue {
   account: string | null;
   role: WalletRole | null;
+  legacyRole?: WalletRole | null;
+  isV2Manager?: boolean;
+  v2Owner?: string | null;
+  managerRecognitionError?: string | null;
   isManager: boolean;
   isInvestor: boolean;
   isSme: boolean;
@@ -95,6 +100,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
 
   const provider = useMemo(() => injected ? new BrowserProvider(injected, 'any', { cacheTimeout: -1 }) : null, [injected]);
   const ledger = useMemo(() => provider ? new ChainLedger(RECEIVLEDGER_ADDRESS, provider) : null, [provider]);
+  const v2Authority = useV2ManagerAuthority(provider,account,networkOk,walletEpoch);
 
   useEffect(() => {
     const legacyProvider = (window as Window & { ethereum?: InjectedWallet }).ethereum;
@@ -463,10 +469,14 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
 
   const value: LedgerContextValue = {
     account,
-    role,
-    isManager: role === 'manager',
-    isInvestor: role === 'investor',
-    isSme: role === 'sme',
+    role: v2Authority.isManager ? 'manager' : role,
+    legacyRole: role,
+    isV2Manager: v2Authority.isManager,
+    v2Owner: v2Authority.owner,
+    managerRecognitionError: v2Authority.error,
+    isManager: v2Authority.isManager || role === 'manager',
+    isInvestor: !v2Authority.isManager && role === 'investor',
+    isSme: !v2Authority.isManager && role === 'sme',
     networkOk,
     walletAvailable: Boolean(injected),
     walletChecking,

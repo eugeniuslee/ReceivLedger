@@ -1,3 +1,7 @@
+# Latest manager-session behaviour
+
+[MANAGER_AUTH.md](MANAGER_AUTH.md) supersedes older memory-only client guidance: same-tab credentials can restore after refresh, but registry Auth/wallet validation and RLS remain required. Live official-origin OPTIONS/unauthenticated POST checks passed for https://receivledger.vercel.app; Auth redirect configuration still needs confirmation. No hosted change was made by this review.
+
 # Supabase activation: review before changing cloud resources
 
 This is a **Vite** project: local browser configuration uses `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in ignored `.env.local`. `NEXT_PUBLIC_*` names belong to Next.js and are not read by this app; `.env.example` is a template and is not loaded automatically. The repository audit corrected those template names while preserving the existing browser-safe values. See [REPOSITORY_VERIFICATION.md](REPOSITORY_VERIFICATION.md) for the current branch/history findings and checks; earlier phase reports describe their original verification dates, not proof of hosted activation.

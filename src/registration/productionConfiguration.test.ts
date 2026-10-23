@@ -36,7 +36,7 @@ describe('Vite production replacement for a Vercel Preview build', () => {
   it('initializes the client from exactly the VITE variables at build time', async () => {
     const { probe, createClient } = await productionProbe(url, key);
     expect(probe.registryClient).not.toBeNull(); expect(probe.registryConfigurationError).toBeNull();
-    expect(createClient).toHaveBeenCalledWith(url, key, { auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false } });
+    expect(createClient).toHaveBeenCalledWith(url, key, expect.objectContaining({ auth: expect.objectContaining({ persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }) }));
   });
   it('does not substitute NEXT_PUBLIC variables or runtime environment for missing VITE build values', async () => {
     const { probe, createClient } = await productionProbe('', '');

@@ -114,3 +114,7 @@ Sepolia cannot fast-forward time. Multi-day accrual is proved locally; live fees
 | E13 | Production promotion/merge | Separate approval after all relevant rows pass; blocked rows prevent financial release |
 
 Return the completed matrix, actual deployment/config record and release evidence to the owner. A passing build or execution-disabled Preview is not live financial acceptance.
+
+## Fund Manager recognition/session regression checks
+
+See [MANAGER_AUTH.md](docs/MANAGER_AUTH.md) for current evidence and paired manual checks. Public Home/Reports must load from V2 owner recognition without a signature; private application/document access must require explicit manager verification and backend authorisation. Same-tab refresh restores only after server validation. Ordinary-wallet/account/epoch/network/Auth-user switches, wrong profiles and revoked sessions must clear private state. V1 transaction permissions and V2 execution locks must remain unchanged.

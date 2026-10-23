@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { userFacingError } from '../errors';
+import { tabSessionStorage } from './sessionStorage';
 
 export function readSupabaseConfiguration(url = '', key = '') {
   // Vite substitutes these strings during the build, including Vercel Preview
@@ -15,7 +16,7 @@ export function readSupabaseConfiguration(url = '', key = '') {
   // Only the browser publishable key is accepted; never silently accept privileged keys.
   if (!/^sb_publishable_[A-Za-z0-9_-]+$/.test(publishableKey)) return { client: null, configurationError: 'Invalid VITE_SUPABASE_PUBLISHABLE_KEY in this build. Use the raw sb_publishable_ key without wrapping quotes. Secret/service-role keys and legacy JWT keys are not accepted.' };
   try {
-    return { client: createClient(projectUrl, publishableKey, { auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false } }), configurationError: null };
+    return { client: createClient(projectUrl, publishableKey, { auth: { persistSession: true, storage: tabSessionStorage, autoRefreshToken: true, detectSessionInUrl: false } }), configurationError: null };
   } catch { return { client: null, configurationError: 'Frontend configuration was present, but the Supabase client could not initialize. Check this deployment build and browser support. No authentication or database request has been verified.' }; }
 }
 

@@ -1,3 +1,7 @@
+# Latest Fund Manager authentication update
+
+See [MANAGER_AUTH.md](docs/MANAGER_AUTH.md) for owner-based public recognition, validated same-tab session recovery, live official-origin checks and the two-step manual workflow. Credentials now use sessionStorage rather than memory-only Auth; private records still require server verification. Latest manager-authentication verification: 421 tests, TypeScript, both Edge checks, production build and whitespace checks PASS. V1 and V2 chain code/ABIs and backend/RLS policies are unchanged. The earlier results/status below describe their respective review stages.
+
 # ReceivLedger — developer handover
 
 **23 October 2026, Asia/Singapore.** University demonstration; SGD accounting is simulated. No real payment rail or investor distributions.

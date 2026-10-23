@@ -154,14 +154,14 @@ describe('public invoice review versus private documents', () => {
     render(<Invoices />); fireEvent.click(screen.getByRole('button', { name: '#1' }));
     const dialog = within(screen.getByRole('dialog'));
     expect(dialog.getByText('On-chain invoice record')).toBeTruthy();
-    expect(dialog.queryByRole('button', { name: 'Sign in with this wallet' })).toBeNull();
+    expect(dialog.queryByRole('button', { name: 'Verify Fund Manager Wallet' })).toBeNull();
     expect(dialog.queryByText('Frontend Supabase configuration unavailable')).toBeNull();
     expect(dialog.getByRole('button', { name: 'Finance full S$500 on-chain' })).toBeTruthy();
     fireEvent.click(dialog.getByRole('button', { name: 'View private documents' }));
-    expect((dialog.getByRole('button', { name: 'Sign in with this wallet' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((dialog.getByRole('button', { name: 'Verify Fund Manager Wallet' }) as HTMLButtonElement).disabled).toBe(true);
     expect(dialog.queryByLabelText('Fictional PDF')).toBeNull();
     fireEvent.click(dialog.getByRole('button', { name: 'Hide private documents' }));
-    expect(dialog.queryByRole('button', { name: 'Sign in with this wallet' })).toBeNull();
+    expect(dialog.queryByRole('button', { name: 'Verify Fund Manager Wallet' })).toBeNull();
     expect(wallet.runTransaction).not.toHaveBeenCalled();
   });
 });

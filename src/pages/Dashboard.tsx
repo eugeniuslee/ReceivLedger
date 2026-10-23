@@ -1,4 +1,5 @@
 import { useLedger } from '../chain/LedgerContext';
+import { PublicManagerDashboard } from '../v2/ManagerDashboard';
 import type { ChainInvoice, FundSnapshot, InactiveInvestorSnapshot, InvestorSnapshot, ProvisionalSnapshot, SmeSnapshot } from '../chain/chainLedger';
 import { formatInteger, formatMoney } from '../chain/presentation';
 import { WalletName } from '../components/WalletName';
@@ -8,7 +9,8 @@ import { useFinance } from '../finance/FinanceContext';
 import { financialDate } from '../finance/presentation';
 
 export function Dashboard() {
-  const { snapshot, loading, networkOk } = useLedger();
+  const { snapshot, loading, networkOk, isV2Manager } = useLedger();
+  if (networkOk && isV2Manager) return <><PublicManagerDashboard />{snapshot?.role === 'manager' && <details className="model-controls"><summary>Existing V1 fund records</summary><ManagerDashboard snapshot={snapshot} /></details>}</>;
   if (!networkOk) return <div className="empty-state">Connect to Sepolia to read your ReceivLedger view.</div>;
   if (loading && !snapshot) return <div className="empty-state">Loading wallet-specific contract data…</div>;
   if (!snapshot) return <div className="empty-state">Wallet data is unavailable. Refresh after checking your RPC connection.</div>;

@@ -26,7 +26,7 @@ const signOutFailure = 'Private data cleared here, but server sign-out failed. R
 class SessionMismatch extends Error {}
 function invalidSession(cause: unknown) { return cause instanceof SessionMismatch || cause instanceof RegistryRequestError && cause.status === 401; }
 
-// The SDK is memory-only. Never restore trust from local storage or JWT claims:
+// SDK credentials survive same-tab refresh. Never restore trust from storage or JWT claims:
 // bootstrap validates Auth and the active Ethereum identity on the server.
 async function restorePrivateSession(client: SupabaseClient, session: Session, wallet: string) {
   const snapshot = await registryRequest<RegistrySnapshot>(client, session.access_token, { action: 'bootstrap' });
@@ -65,7 +65,7 @@ export function RegistryProvider({ children, client = registryClient }: { childr
   useEffect(() => {
     // Wait for the initial passive wallet lookup. A real disconnect/network or
     // wallet change still invalidates the session immediately through generation.
-    if (previousScope.current === null && !scope && walletChecking) return;
+    if (previousScope.current === null && (!scope || walletChecking)) return;
     const walletChanged = previousScope.current !== null && (previousScope.current.scope !== scope || previousScope.current.epoch !== walletEpoch);
     previousScope.current = { scope, epoch: walletEpoch };
     if (!walletChanged && stateRef.current) return;
@@ -110,7 +110,17 @@ export function RegistryProvider({ children, client = registryClient }: { childr
         stateRef.current = null;
         setState(null);
       }
-      else if (event === 'TOKEN_REFRESHED' && session) setState(previous => previous && previous.scope === generation.current.scope && previous.version === generation.current.version && previous.profile.user_id === session.user.id ? { ...previous, token: session.access_token } : previous);
+      else if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN' || event === 'USER_UPDATED') && session) {
+        const active=stateRef.current;
+        if(!active || active.scope!==generation.current.scope || active.version!==generation.current.version) return;
+        if(active.profile.user_id!==session.user.id) {
+          generation.current={...generation.current,version:generation.current.version+1};
+          stateRef.current=null;setState(null);setError('The authentication session changed. Verify the selected wallet again.');
+        } else if(event==='TOKEN_REFRESHED') {
+          const refreshed={...active,token:session.access_token};
+          stateRef.current=refreshed;setState(refreshed);
+        }
+      }
     });
     return () => { data.subscription.unsubscribe(); };
   }, [client]);
@@ -206,7 +216,7 @@ export function RegistryProvider({ children, client = registryClient }: { childr
     setError(null);
     try {
       const snapshot = await request<RegistrySnapshot>({ action: 'bootstrap' });
-      if (!sameWallet(snapshot.profile.wallet, active.profile.wallet) || snapshot.profile.user_id !== active.profile.user_id) throw new Error('The refreshed profile did not match this wallet. Sign in again.');
+      if (!sameWallet(snapshot.profile.wallet, active.profile.wallet) || snapshot.profile.user_id !== active.profile.user_id) throw new SessionMismatch('The refreshed profile did not match this wallet. Sign in again.');
       const names = await request<DirectoryName[]>({ action: 'directory' });
       if (version === generation.current.version) {
         if (snapshot.application) rememberApplicationWallet(active.profile.wallet);
@@ -214,7 +224,10 @@ export function RegistryProvider({ children, client = registryClient }: { childr
       }
     } catch (cause) {
       const message = userFacingError(cause, 'Private records could not be refreshed. Please try again.');
-      if (version === generation.current.version) setError(message);
+      if (cause instanceof SessionMismatch && version === generation.current.version) {
+        await signOut();
+        if (generation.current.version === version + 1) setError(message);
+      } else if (version === generation.current.version) setError(message);
       throw new Error(message);
     }
   }

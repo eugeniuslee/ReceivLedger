@@ -6,7 +6,7 @@ import type { RoleSnapshot } from './chainLedger';
 import { resetBrowserStorage } from '../test/browserStorage';
 import { LedgerApp } from '../App';
 
-const calls = vi.hoisted(() => ({ read: vi.fn(), classify: vi.fn(), events: vi.fn() }));
+const calls = vi.hoisted(() => ({ read: vi.fn(), classify: vi.fn(), events: vi.fn(), authority: vi.fn() }));
 vi.mock('./chainLedger', async importOriginal => {
   const actual = await importOriginal<typeof import('./chainLedger')>();
   return { ...actual, ChainLedger: vi.fn().mockImplementation(() => ({ readWalletSnapshot: calls.read, classifyWallet: calls.classify, readEvents: calls.events })) };
@@ -15,6 +15,7 @@ vi.mock('./chainLedger', async importOriginal => {
 const walletA = '0x1111111111111111111111111111111111111111';
 const walletB = '0x2222222222222222222222222222222222222222';
 const manager = '0x3333333333333333333333333333333333333333';
+vi.mock('./managerAuthority',()=>({useV2ManagerAuthority:(_provider:unknown,account:string|null)=>calls.authority(account)}));
 let accounts: string[];
 let selectedChain: string;
 let listeners: Record<string, (...args: unknown[]) => void>;
@@ -26,6 +27,7 @@ function snapshot(role: 'provisional' | 'investor'): RoleSnapshot {
 }
 beforeEach(() => {
   resetBrowserStorage();
+  calls.authority.mockReset().mockReturnValue({isManager:false,owner:null,error:null,loading:false});
   accounts = [walletA]; selectedChain = '0xaa36a7'; listeners = {};
   calls.read.mockReset().mockResolvedValue(snapshot('provisional'));
   calls.classify.mockReset().mockResolvedValue({ role: 'provisional', manager, approved: false, balance: 0n });
@@ -234,4 +236,19 @@ describe('network changes without a browser reload',()=>{
   selectedChain='0x1';await act(async()=>{listeners.chainChanged('0x1');});await waitFor(()=>expect(current.networkOk).toBe(false));expect(current.snapshot).toBeNull();
   selectedChain='0xaa36a7';await act(async()=>{listeners.chainChanged(selectedChain);});await waitFor(()=>expect(current.networkOk&&current.role==='investor').toBe(true));expect(current.account).toBe(walletA);
  });
+});
+
+describe('V2 recognition versus legacy transaction authority',()=>{
+  it('recognises the V2 owner before private authentication without granting V1 write rights',async()=>{
+    calls.authority.mockImplementation((account:string|null)=>({isManager:account===walletA,owner:walletA,error:null,loading:false}));
+    await mountWallet();
+    expect(current.role).toBe('manager');expect(current.isV2Manager).toBe(true);
+    expect(current.legacyRole).toBe('provisional');
+    const operation=vi.fn();
+    await expect(current.runTransaction('manager',operation)).rejects.toThrow('requires the manager wallet role');
+    expect(operation).not.toHaveBeenCalled();
+    await act(async()=>{accounts=[walletB];listeners.accountsChanged(accounts);});
+    await waitFor(()=>expect(current.account).toBe(walletB));
+    expect(current.isV2Manager).toBe(false);expect(current.role).not.toBe('manager');
+  });
 });

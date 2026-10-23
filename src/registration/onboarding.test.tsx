@@ -239,7 +239,7 @@ describe('manager private application access', () => {
     const view = render(<Applications />);
     expect(screen.getByText(/recognised as the on-chain fund manager/)).toBeTruthy();
     expect(registry.request).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in with this wallet' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Fund Manager Wallet' }));
     expect(registry.signIn).toHaveBeenCalledOnce();
     registry.authenticated = true; registry.isManager = true; view.rerender(<Applications />);
     expect(await screen.findByText('Fictional pending')).toBeTruthy();

@@ -14,7 +14,7 @@ vi.mock('./client', async original => {
 });
 const alice = '0x2222222222222222222222222222222222222222';
 const bob = '0x3333333333333333333333333333333333333333';
-let wallet: { account: string | null; networkOk: boolean; walletEpoch?: number; signWalletMessage: ReturnType<typeof vi.fn> };
+let wallet: { account: string | null; networkOk: boolean; walletEpoch?: number; walletChecking?: boolean; signWalletMessage: ReturnType<typeof vi.fn> };
 let client: SupabaseClient;
 let signOut: ReturnType<typeof vi.fn>; let signIn: ReturnType<typeof vi.fn>; let getSession: ReturnType<typeof vi.fn>;
 let authListener: (event: AuthChangeEvent, session: Session | null) => void;
@@ -53,7 +53,7 @@ describe('private session and wallet isolation', () => {
     expect(current.error).toBeNull();
     vi.mocked(registryRequest).mockResolvedValueOnce(snapshot(bob));
     await act(async () => { await expect(current.reload()).rejects.toThrow('did not match this wallet'); });
-    expect(current.registeredName).toBe('Fictional Alice');
+    expect(current.registeredName).toBeNull(); expect(current.authenticated).toBe(false);
     expect(current.error).toContain('did not match this wallet');
   });
   it('identifies Supabase authentication failure without losing frontend readiness', async () => {
@@ -289,5 +289,56 @@ describe('batched wallet identity changes', () => {
     expect(current.application).toBeNull(); expect(current.authenticated).toBe(false);
     await act(async () => { finish([{ filename: 'old-wallet.pdf' }]); await discarded; });
     expect(current.authenticated).toBe(false);
+  });
+});
+
+describe('refresh-safe private session validation',()=>{
+  const stored=()=>({access_token:'stored-session',user:{id:'user'},expires_at:Math.floor(Date.now()/1000)+3600});
+  it('waits for initial wallet discovery without signing out the saved session',async()=>{
+    getSession.mockResolvedValue({data:{session:stored()},error:null});
+    wallet={...wallet,account:null,networkOk:false,walletChecking:true};
+    const view=render(<RegistryProvider client={client}><Probe/></RegistryProvider>);
+    wallet={...wallet,walletChecking:false};
+    view.rerender(<RegistryProvider client={client}><Probe/></RegistryProvider>);
+    expect(getSession).not.toHaveBeenCalled();expect(signOut).not.toHaveBeenCalled();
+    wallet={...wallet,account:alice,networkOk:true,walletChecking:true};
+    view.rerender(<RegistryProvider client={client}><Probe/></RegistryProvider>);
+    expect(signOut).not.toHaveBeenCalled();
+    wallet={...wallet,walletChecking:false};
+    view.rerender(<RegistryProvider client={client}><Probe/></RegistryProvider>);
+    await waitFor(()=>expect(current.authenticated).toBe(true));
+    expect(wallet.signWalletMessage).not.toHaveBeenCalled();expect(signIn).not.toHaveBeenCalled();expect(signOut).not.toHaveBeenCalled();
+    expect(registryRequest).toHaveBeenCalledWith(client,'stored-session',{action:'bootstrap'});
+  });
+  it('does not trust a saved credential or its manager claims until the server validates the wallet',async()=>{
+    getSession.mockResolvedValue({data:{session:{...stored(),user:{id:'user',user_metadata:{isManager:true}}}},error:null});
+    vi.mocked(registryRequest).mockImplementation(async(_client,_token,input)=>(input as Record<string,unknown>).action==='bootstrap'?{...snapshot(),isManager:false}:[]);
+    render(<RegistryProvider client={client}><Probe/></RegistryProvider>);
+    expect(current.authenticated).toBe(false);expect(current.isManager).toBe(false);
+    await waitFor(()=>expect(current.authenticated).toBe(true));expect(current.isManager).toBe(false);
+    expect(wallet.signWalletMessage).not.toHaveBeenCalled();
+  });
+  it('clears a revoked stored session without silently requesting a new signature',async()=>{
+    getSession.mockResolvedValue({data:{session:stored()},error:null});
+    vi.mocked(registryRequest).mockRejectedValue(new RegistryRequestError('Session revoked',401));
+    render(<RegistryProvider client={client}><Probe/></RegistryProvider>);
+    await waitFor(()=>expect(current.error).toContain('revoked'));
+    expect(current.authenticated).toBe(false);expect(current.application).toBeNull();expect(signOut).toHaveBeenCalled();
+    expect(signIn).not.toHaveBeenCalled();expect(wallet.signWalletMessage).not.toHaveBeenCalled();
+  });
+  it('uses a token refresh synchronously for the next request without a new signature',async()=>{
+    render(<RegistryProvider client={client}><Probe/></RegistryProvider>);await authenticate();
+    await act(async()=>{
+      authListener('TOKEN_REFRESHED',{user:{id:'user'},access_token:'immediate-refresh'} as Session);
+      await current.request({action:'documents'});
+    });
+    expect(registryRequest).toHaveBeenLastCalledWith(client,'immediate-refresh',{action:'documents'});
+    expect(signIn).toHaveBeenCalledOnce();
+  });
+  it('invalidates data when Auth changes to an unrelated user',async()=>{
+    render(<RegistryProvider client={client}><Probe/></RegistryProvider>);await authenticate();
+    await act(async()=>authListener('SIGNED_IN',{user:{id:'other-user'},access_token:'other-token'} as Session));
+    expect(current.authenticated).toBe(false);expect(current.registeredName).toBeNull();
+    await expect(current.request({action:'applications'})).rejects.toThrow('Sign in');
   });
 });

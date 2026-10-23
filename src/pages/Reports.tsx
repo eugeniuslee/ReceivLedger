@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { PublicManagerDashboard } from '../v2/ManagerDashboard';
 import { useLedger } from '../chain/LedgerContext';
 import { useFinance } from '../finance/FinanceContext';
 import { borrowingCapacity, money, portfolio, prospectiveIncome } from '../finance/models';
@@ -6,7 +7,8 @@ import { formatInteger } from '../chain/presentation';
 import { FeeCalculator, FinancialSource, InvoiceAssessment, NavIllustration, useModelAssumptions } from '../components/FinancialModels';
 
 export function Reports() {
-  const { role } = useLedger();
+  const { role, isV2Manager, legacyRole } = useLedger();
+  if (isV2Manager) return <><PublicManagerDashboard title="V2 fund financial reporting" />{legacyRole === 'manager' && <details className="model-controls"><summary>Existing V1 financial reports and illustrations</summary><ManagerReports /></details>}</>;
   if (role !== 'manager') return <div className="notice error">Financial reporting is available to the fund manager. Personal investment illustrations are on investor Home.</div>;
   return <ManagerReports />;
 }
