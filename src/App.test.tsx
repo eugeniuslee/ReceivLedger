@@ -6,6 +6,7 @@ import { useLedger } from './chain/LedgerContext';
 import { NAVIGATION_KEY } from './chain/navigation';
 import type { WalletRole } from './chain/chainLedger';
 import { resetBrowserStorage } from './test/browserStorage';
+import { V2Ledger } from './v2/V2Ledger';
 
 vi.mock('./chain/LedgerContext', () => ({ useLedger: vi.fn(), LedgerProvider: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock('./pages/Dashboard', () => ({ Dashboard: () => <div>Wallet home content</div> }));
@@ -18,6 +19,7 @@ const walletB = '0x2222222222222222222222222222222222222222';
 let wallet: ReturnType<typeof useLedger>;
 beforeEach(() => {
   resetBrowserStorage();
+  vi.spyOn(V2Ledger.prototype,'readReport').mockReturnValue(new Promise(()=>{}));
   wallet = {
     account: walletA, role: 'manager', networkOk: true, walletAvailable: true, walletChecking: false, walletEpoch: 0,
     isManager: true, isInvestor: false, isSme: false, snapshot: null, events: [], eventIndexComplete: true,
@@ -27,7 +29,7 @@ beforeEach(() => {
   };
   vi.mocked(useLedger).mockImplementation(() => wallet);
 });
-afterEach(cleanup);
+afterEach(()=>{cleanup();vi.restoreAllMocks();});
 
 function openProfileMenu() { fireEvent.click(screen.getByRole('button', { name: /^Account:/ })); }
 
@@ -37,7 +39,7 @@ describe('Stage A wallet navigation and account controls', () => {
     render(<LedgerApp />);
     fireEvent.click(screen.getByRole('button',{name:'Open financing and fund tools'}));
     expect(screen.getByRole('heading',{level:1}).textContent).toBe('Financing & Fund Requests');
-    expect(screen.getByText('V2 is deployed on Sepolia. Financial execution remains disabled.')).toBeTruthy();
+    expect(screen.getByText(role==='manager'?'Execution disabled':'V2 is deployed on Sepolia. Financial execution remains disabled.')).toBeTruthy();
     expect(screen.queryByRole('navigation',{name:'V2 preview sections'})).toBeNull();
     expect(wallet.runTransaction).not.toHaveBeenCalled();
     expect(wallet.signWalletMessage).not.toHaveBeenCalled();

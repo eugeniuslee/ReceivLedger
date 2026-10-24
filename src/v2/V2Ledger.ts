@@ -17,7 +17,7 @@ export class V2Ledger {
     const provider = this.contract.runner?.provider;
     if (!provider || (await provider.getNetwork()).chainId !== 11155111n) throw new Error('V2 reads require Sepolia.');
     const blockTag = await provider.getBlockNumber();
-    const names = ['MAX_FUND_CENTS','SME_CAP_CENTS','navCents','fundAssetsCents','liquidCents','freeLiquidityCents','outstandingCents','accruedInterestCents','bookedAccruedCents','earnedInterestCents','impairmentCents','pricingUnits','totalSupply','reservedRedemptionCents','financingCommitmentsCents','pendingSubscriptionCents','smeReservePoolCents','processingIncomeCents','collectedInterestCents','invoiceCount','subscriptionCount','redemptionCount','automationEnabled','paused','owner'];
+    const names = ['MAX_FUND_CENTS','SME_CAP_CENTS','navCents','fundAssetsCents','liquidCents','freeLiquidityCents','outstandingCents','accruedInterestCents','bookedAccruedCents','earnedInterestCents','impairmentCents','pricingUnits','totalSupply','reservedRedemptionCents','financingCommitmentsCents','pendingSubscriptionCents','smeReservePoolCents','processingIncomeCents','collectedInterestCents','invoiceCount','subscriptionCount','redemptionCount','automationEnabled','paused','owner','valuationValidUntil'];
     const values = await Promise.all(names.map(name => this.contract.getFunction(name)({blockTag})));
     if (values[0] !== 1_000_000_000n||values[1]!==10_000_000n) throw new Error('Unexpected V2 contract policy.');
     const [units,approvedInvestor,verifiedSme] = await Promise.all(['balanceOf','investors','verifiedSmes'].map(name=>this.contract.getFunction(name)(wallet,{blockTag})));

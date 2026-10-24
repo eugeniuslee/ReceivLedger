@@ -15,6 +15,7 @@ export function PrivateAccess({ children, compact = false }: { children: React.R
     {account && !networkOk && <p className="support-copy">Switch the connected wallet to Sepolia before signing in.</p>}
     {transactionPending && <p className="support-copy">Wait for the current wallet transaction to finish before signing in.</p>}
     {configured && error && <p className="inline-error" role="alert">{error}</p>}
+    {configured && <details className="private-auth-help"><summary>Wallet sign-in help</summary><p>Supabase Auth must allow this exact sign-in URL: <code>{new URL('/', window.location.origin).href}</code></p><p>The registration service separately requires this browser origin: <code>{window.location.origin}</code>. A new tab or hostname needs its own verification. If a saved session could not be restored, retrying first rechecks that session before requesting a signature.</p></details>}
     <button className="btn" disabled={!configured || !account || !networkOk || busy || transactionPending} onClick={() => void signIn()}>{busy ? 'Waiting for wallet sign-in…' : role === 'manager' ? 'Verify Fund Manager Wallet' : 'Sign in with this wallet'}</button>
   </section>;
 }

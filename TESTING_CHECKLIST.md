@@ -1,5 +1,24 @@
 # ReceivLedger — testing checklist
 
+## Current local review — 24 October 2026
+
+[FINAL_WEBSITE_REVIEW.md](docs/FINAL_WEBSITE_REVIEW.md) records the current **439/439 passing tests across 31 files**, TypeScript, both Edge checks, production build, live public adapter smoke and origin/network evidence. No wallet was signed, financial transaction executed or hosted setting changed. The following manual checks remain NOT RUN; automated evidence is not hosted acceptance.
+
+| ID | Check | Current evidence / remaining acceptance |
+|---|---|---|
+| F01 | Manager opens Financing & Fund Requests | Automated PASS: automatic public snapshot, real zero/unavailable states, no S$10m fallback; visually review desktop/mobile |
+| F02 | Change request type, pending/all filter, review actual request | Automated PASS: amounts/statuses, test-only fixture rows, disabled execution; inspect populated layout on an approved Preview |
+| F03 | Open Scenario Analysis and change NAV/liquidity/exposures | Automated PASS: collapsed by default, blank capital, default-policy calculator cannot alter actual fund summary |
+| F04 | Reconcile risk / liquidity | Automated PASS: gross exposure versus net cash commitments, segregated funding, pending versus allocated exits, payer/SME rules, overdue and valuation expiry |
+| F05 | Auth user changes during session restoration | Reproduced FAIL against original code; fixed regression PASS, no older private state published |
+| F06 | Token refresh during bootstrap | Reproduced expiry/sign-out FAIL against original code; fixed same-user retry and immediate refreshed-token regressions PASS; different-user/revoked credentials denied |
+| F07 | Manager verifies once and refreshes same tab | Existing/new SDK and provider tests PASS; successful hosted SIWE and page-refresh acceptance NOT RUN |
+| F08 | Manager → Investor/SME → Manager; network/Auth/revocation changes | Automated isolation/role/RLS tests PASS; repeat hosted with no stale application/KYC data |
+| F09 | Exact permanent-origin configuration | Current registry 204/401/403 checks PASS; Auth Site URL/root allowlist still requires read-only dashboard confirmation |
+| F10 | Permanent URL network acceptance | Default/Google DNS resolve; HTTPS connection reset reproduced, including public-IP/SNI check. Resolve externally and retest on another trusted network |
+
+Submission dates are unavailable in V2 request structs; do not treat reporting time or invoice maturity as a submission date. V1 private registrations are not V2 investment/financing requests. Current empty-chain evidence is block 11980697, not a claim of future balances. See the report for exact external URLs and unchanged release gates.
+
 Record PASS / FAIL / BLOCKED / NOT RUN, commit, environment, contract/version, wallet role, expected/actual result and evidence for each row. Use fictional profiles/PDFs only. Never include credentials or document contents in evidence. Unknown/blocked is not a pass.
 
 Current local results are in HANDOVER.md. Real-browser/mobile QA, successful hosted private flows and live V2 lifecycles were NOT RUN in this integration. V2 deployment/code/Manager are verified read-only; application execution remains locked. See docs/V2_DEPLOYMENT_VERIFICATION.md/.json. Stage A needs no signature; B needs approved private-session acceptance and warning resolution; C/D/E financial transactions need separate integration/signing approval; no additional deployment is needed. Stop at MetaMask warnings; never bypass or evade them.

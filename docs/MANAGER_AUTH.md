@@ -1,5 +1,21 @@
 # Fund Manager recognition and private authentication
 
+## Current findings — 24 October 2026
+
+The prior 23 October fixes below are committed in `d0c063e`, including remote `main` confirmed with read-only `git ls-remote`. This review adds local uncommitted fixes; see [FINAL_WEBSITE_REVIEW.md](FINAL_WEBSITE_REVIEW.md) for exact files and evidence. Its current status supersedes older branch/publication wording below.
+
+- Connecting MetaMask still recognizes the manager publicly through V2 `owner()`. Home, Financial Reports and manager fund operations need no private signature.
+- The Applications prompt is expected when no usable private session exists. A new tab/origin, wallet/network change, explicit sign-out, revoked session or blocked browser storage can require verification. A valid same-origin, same-tab session must restore through server checks before private data appears.
+- Two new regressions reproduced defects in the original code: an unrelated Auth user event during bootstrap could publish the older snapshot, and an expiring bootstrap token could sign out a session already refreshed by the SDK. Pending user identity is now guarded, the same-user refreshed token is retained, and a 401 retries validation once only for a different same-user SDK token. Unchanged/revoked/different-user credentials still fail closed.
+- SIWE already uses the actual current browser host and origin-root URI. The known URI rejection now displays a targeted Auth configuration explanation; **Wallet sign-in help** shows the exact current root URL and Edge origin. No message is automatically signed and no private/backend permission is relaxed.
+- Required Auth Site URL and exact Redirect URL: `https://receivledger.vercel.app/`. Existing registry origin: `https://receivledger.vercel.app` without slash. At approximately 09:51 SGT, current live CORS checks passed (204 official preflight, 401 unauthenticated bootstrap, 403 unapproved origin). Auth's hosted URL configuration remains uninspected.
+
+Without a successful permitted sign-in, the user's particular hosted prompt cannot be proven to be first-time verification versus failed restoration. The error text identifies Auth URL rejection if it recurs; CORS is a separate boundary. No wallet signature was performed. Required manual acceptance remains: verify once, navigate Applications/documents, refresh the same tab, and test account/network/revocation isolation on an approved origin without security warnings.
+
+Current verification: 439 tests across 31 files, TypeScript, both Edge checks and production build PASS. Original-code baseline failures and fixed-case passes are recorded in the full report. RLS, private storage, backend handlers, Solidity and financial execution locks are unchanged.
+
+## Historical 23 October review
+
 Local changes on feat/v2-financing-redemption, based on 671ba11 (23 October 2026, Asia/Singapore). No hosted setting, Solidity, contract address, ABI, migration, commit, push or deployment was changed. Existing untracked vercel-debug.txt was left untouched.
 
 ## Confirmed causes

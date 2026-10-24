@@ -77,7 +77,7 @@ describe('server PDF validation', () => {
 
 
 describe('wallet sign-in domain separation', () => {
-  it.each(['https://receiv-ledger.vercel.app', 'https://receiv-ledger-lt5n8xuzw-eugene-dd71.vercel.app'])('binds the textual sign-in to the actual requesting origin: %s', origin => {
+  it.each(['https://receivledger.vercel.app', 'https://approved-preview.example.test', 'http://localhost:5173'])('binds the textual sign-in to the actual requesting origin: %s', origin => {
     const message = createSignInMessage(applicant, origin, new Date('2026-10-22T00:00:00Z'), 'abcdef1234567890');
     expect(message.split('\n')[0]).toBe(new URL(origin).host + ' wants you to sign in with your Ethereum account:');
     expect(message).toContain('URI: ' + origin + '/');

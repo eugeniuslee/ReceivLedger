@@ -6,8 +6,14 @@ import { usePublicReport } from './usePublicReport';
 import { InvestmentPolicy, RedemptionDraft, ManagerDraft, RequestHistory } from './RequestPanels';
 import {InvestorAssets,ManagerReport} from './Reports';
 import { userFacingError } from '../errors';
+import { ManagerOperations } from './ManagerOperations';
 
-export function V2App({stakeholder,connectedWallet,walletEpoch=0,networkOk=true}:{stakeholder?:'manager'|'investor'|'sme';connectedWallet?:string;walletEpoch?:number;networkOk?:boolean}={}) {
+type WorkspaceProps = {stakeholder?:'manager'|'investor'|'sme';connectedWallet?:string;walletEpoch?:number;networkOk?:boolean};
+export function V2App(props: WorkspaceProps = {}) {
+  if (props.stakeholder === 'manager') return <ManagerOperations key={`${props.connectedWallet}:${props.walletEpoch}:${props.networkOk}`} wallet={props.connectedWallet ?? ''} epoch={props.walletEpoch ?? 0} networkOk={props.networkOk ?? true} />;
+  return <V2Preview {...props} />;
+}
+function V2Preview({stakeholder,connectedWallet,walletEpoch=0,networkOk=true}:WorkspaceProps) {
   const initialTab=stakeholder==='manager'?'Manager controls':stakeholder==='investor'?'Investor requests':'SME quotation';
   const [selectedTab,setTab]=useState(initialTab);
   const tab=stakeholder?initialTab:selectedTab;

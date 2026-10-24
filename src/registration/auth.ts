@@ -12,3 +12,9 @@ export function createSignInMessage(wallet: string, origin: string, now = new Da
 export function sameWallet(left: string | null | undefined, right: string | null | undefined) {
   return Boolean(left && right && left.toLowerCase() === right.toLowerCase());
 }
+
+/** A configuration rejection is different from a wallet/session failure. */
+export function isSignInOriginError(error: unknown) {
+  const message = error instanceof Error ? error.message : typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : '';
+  return /URI which is not allowed|signed for another app/i.test(message);
+}

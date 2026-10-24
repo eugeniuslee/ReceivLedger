@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import { useLedger } from '../chain/LedgerContext';
 import { registryClient, registryConfigurationError, registryRequest, RegistryRequestError } from './client';
-import { createSignInMessage, sameWallet } from './auth';
+import { createSignInMessage, isSignInOriginError, sameWallet } from './auth';
 import { needsApplicationSession, rememberApplicationWallet } from './enrollment';
 import type { Application, RegistrySnapshot } from '../../supabase/functions/_shared/domain';
 import { userFacingError, walletErrorMessage } from '../errors';
@@ -29,10 +29,22 @@ function invalidSession(cause: unknown) { return cause instanceof SessionMismatc
 // SDK credentials survive same-tab refresh. Never restore trust from storage or JWT claims:
 // bootstrap validates Auth and the active Ethereum identity on the server.
 async function restorePrivateSession(client: SupabaseClient, session: Session, wallet: string) {
-  const snapshot = await registryRequest<RegistrySnapshot>(client, session.access_token, { action: 'bootstrap' });
-  if (!sameWallet(snapshot.profile.wallet, wallet) || snapshot.profile.user_id !== session.user.id) throw new SessionMismatch('The signed session belongs to another wallet.');
-  const names = await registryRequest<DirectoryName[]>(client, session.access_token, { action: 'directory' });
-  return { ...snapshot, token: session.access_token, names };
+  async function validate(credential: Session) {
+    const snapshot = await registryRequest<RegistrySnapshot>(client, credential.access_token, { action: 'bootstrap' });
+    if (!sameWallet(snapshot.profile.wallet, wallet) || snapshot.profile.user_id !== credential.user.id) throw new SessionMismatch('The signed session belongs to another wallet.');
+    const names = await registryRequest<DirectoryName[]>(client, credential.access_token, { action: 'directory' });
+    return { ...snapshot, token: credential.access_token, names };
+  }
+  try { return await validate(session); }
+  catch (cause) {
+    if (!(cause instanceof RegistryRequestError) || cause.status !== 401) throw cause;
+    // The SDK may refresh while bootstrap is in flight. Retry once, only with
+    // a different same-user token; both backend identity checks still run.
+    const { data, error } = await client.auth.getSession();
+    const refreshed = data.session;
+    if (error || !refreshed || refreshed.user.id !== session.user.id || refreshed.access_token === session.access_token) throw cause;
+    return validate(refreshed);
+  }
 }
 
 export function RegistryProvider({ children, client = registryClient }: { children: ReactNode; client?: SupabaseClient | null }) {
@@ -47,6 +59,7 @@ export function RegistryProvider({ children, client = registryClient }: { childr
   const operationInFlight = useRef(false);
   const previousScope = useRef<{ scope: string; epoch: number } | null>(null);
   const expectedSignOut = useRef(false);
+  const restoringUser = useRef<{ version: number; id: string; refreshedToken?: string } | null>(null);
   const authenticated = state && state.scope === scope && state.version === generation.current.version && sameWallet(state.profile.wallet, account) ? state : null;
   const stateRef = useRef(authenticated); stateRef.current = authenticated;
   const clearClientSession = useCallback(async () => {
@@ -81,10 +94,13 @@ export function RegistryProvider({ children, client = registryClient }: { childr
           if (sessionError) throw sessionError;
           if (!active || version !== generation.current.version) return;
           if (data.session) {
+            restoringUser.current = { version, id: data.session.user.id };
             const restored = await restorePrivateSession(client, data.session, scope);
             if (!active || version !== generation.current.version) return;
             if (restored.application) rememberApplicationWallet(scope);
-            setState({ ...restored, scope, version });
+            const validated = { ...restored, token: restoringUser.current?.refreshedToken ?? restored.token, scope, version };
+            stateRef.current = validated;
+            setState(validated);
           }
           return;
         }
@@ -96,7 +112,10 @@ export function RegistryProvider({ children, client = registryClient }: { childr
           if (invalidSession(cause)) await clearClientSession().catch(() => {});
           if (active && version === generation.current.version) setError(`Private session could not be restored: ${userFacingError(cause, 'Sign in again with this wallet.')}`);
         } else setError(signOutFailure);
-      } finally { if (active && version === generation.current.version) setBusy(false); }
+      } finally {
+        if (restoringUser.current?.version === version) restoringUser.current = null;
+        if (active && version === generation.current.version) setBusy(false);
+      }
     });
     return () => { active = false; };
   }, [scope, walletEpoch, walletChecking, client, enqueue, clearClientSession]);
@@ -108,17 +127,20 @@ export function RegistryProvider({ children, client = registryClient }: { childr
         if (!expectedSignOut.current || stateRef.current) generation.current = { ...generation.current, version: generation.current.version + 1 };
         if (!expectedSignOut.current) setBusy(false);
         stateRef.current = null;
+        restoringUser.current = null;
         setState(null);
       }
       else if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN' || event === 'USER_UPDATED') && session) {
         const active=stateRef.current;
-        if(!active || active.scope!==generation.current.scope || active.version!==generation.current.version) return;
-        if(active.profile.user_id!==session.user.id) {
+        const expectedUser = active?.profile.user_id ?? restoringUser.current?.id;
+        if(expectedUser && expectedUser!==session.user.id) {
           generation.current={...generation.current,version:generation.current.version+1};
-          stateRef.current=null;setState(null);setError('The authentication session changed. Verify the selected wallet again.');
-        } else if(event==='TOKEN_REFRESHED') {
+          restoringUser.current=null;stateRef.current=null;setState(null);setBusy(false);setError('The authentication session changed. Verify the selected wallet again.');
+        } else if(active && active.scope===generation.current.scope && active.version===generation.current.version && event==='TOKEN_REFRESHED') {
           const refreshed={...active,token:session.access_token};
           stateRef.current=refreshed;setState(refreshed);
+        } else if (event === 'TOKEN_REFRESHED' && restoringUser.current?.version === generation.current.version) {
+          restoringUser.current.refreshedToken = session.access_token;
         }
       }
     });
@@ -152,15 +174,21 @@ export function RegistryProvider({ children, client = registryClient }: { childr
           if (version !== generation.current.version) return;
           stage = 'Supabase authentication';
           const { data, error: authError } = await client.auth.signInWithWeb3({ chain: 'ethereum', message, signature: signature as `0x${string}` });
-          if (authError) throw authError;
+          if (authError) {
+            if (isSignInOriginError(authError)) throw new Error('This website is not allowed by Supabase Auth. Ask the project owner to check the exact sign-in URL shown below in Authentication > URL Configuration.');
+            throw authError;
+          }
           session = data.session;
         }
         if (!session) throw new Error('No authenticated session was returned. Sign in again.');
         stage = 'Registration service';
+        restoringUser.current = { version, id: session.user.id };
         const restored = await restorePrivateSession(client, session, signingAccount);
         if (version !== generation.current.version) { await clearClientSession(); return; }
         if (restored.application) rememberApplicationWallet(signingAccount);
-        setState({ ...restored, scope: signingAccount.toLowerCase(), version });
+        const validated = { ...restored, token: restoringUser.current?.refreshedToken ?? restored.token, scope: signingAccount.toLowerCase(), version };
+        stateRef.current = validated;
+        setState(validated);
       } catch (cause) {
         // A transient registry/RPC failure does not invalidate a valid SDK
         // session. Retry bootstrap without another signature; publish no data
@@ -171,7 +199,10 @@ export function RegistryProvider({ children, client = registryClient }: { childr
           setError(stage === 'Wallet signature' ? walletErrorMessage(cause, 'signature')
             : `${stage} failed: ${userFacingError(cause, 'The service could not complete sign-in. Check its configuration and try again.')}`);
         }
-      } finally { operationInFlight.current = false; setBusy(false); }
+      } finally {
+        if (restoringUser.current?.version === version) restoringUser.current = null;
+        operationInFlight.current = false; setBusy(false);
+      }
     });
   }
   async function signOut() {

@@ -1,4 +1,14 @@
-# Latest Fund Manager authentication update
+# Current local website review — 24 October 2026
+
+See [FINAL_WEBSITE_REVIEW.md](docs/FINAL_WEBSITE_REVIEW.md) for the current complete report, exact changed files, configuration values and remaining acceptance work. Branch `feat/v2-financing-redemption` starts at `d0c063e`; local main and read-only remote main both contain the prior manager fixes. The new local changes are uncommitted. No branch, hosted configuration/data, contract, signature, transaction or deployment was changed.
+
+Manager Financing & Fund Requests now leads with automatic public V2 balances and pending totals, then request review and risk monitoring; Scenario Analysis is collapsed with blank hypothetical NAV/liquidity. Private session restoration now rejects an Auth user change during bootstrap and handles concurrent same-user token refresh without an unnecessary signature. Private authorization and V2 execution locks remain intact.
+
+Current checks: **439 tests / 31 files PASS**, TypeScript PASS, both Edge checks PASS, production build PASS and whitespace PASS. A real adapter read at block **11980697**, approximately 09:57 SGT, found zero V2 NAV, liquidity, principal and requests. Production DNS resolved, but HTTPS reset even using the public resolver address. Registry official-origin preflight 204, unauthenticated POST 401 and unapproved-origin rejection 403 passed. Hosted Auth URL settings and successful signed acceptance are unverified. Browser desktop/mobile visual QA remains pending because no browser surface was available.
+
+Ready for local/GitHub review and an owner-approved **execution-disabled Preview**; financial Production release remains blocked. This section supersedes older starting-HEAD, uncommitted-status, test-count and origin guidance below. Historical reports retain their original context.
+
+# Previous Fund Manager authentication update
 
 See [MANAGER_AUTH.md](docs/MANAGER_AUTH.md) for owner-based public recognition, validated same-tab session recovery, live official-origin checks and the two-step manual workflow. Credentials now use sessionStorage rather than memory-only Auth; private records still require server verification. Latest manager-authentication verification: 421 tests, TypeScript, both Edge checks, production build and whitespace checks PASS. V1 and V2 chain code/ABIs and backend/RLS policies are unchanged. The earlier results/status below describe their respective review stages.
 

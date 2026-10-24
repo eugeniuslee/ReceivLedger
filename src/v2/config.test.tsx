@@ -5,7 +5,8 @@ import { resolveV2Address, V2_DEPLOYMENT } from './config';
 import { V2App } from './V2App';
 import { V2_EXECUTION_ENABLED } from './activation';
 import { RECEIVLEDGER_ADDRESS } from '../chain/abi';
-afterEach(()=>{cleanup();vi.unstubAllEnvs();});
+import { V2Ledger } from './V2Ledger';
+afterEach(()=>{cleanup();vi.unstubAllEnvs();vi.restoreAllMocks();});
 describe('verified deployed V2 frontend configuration',()=>{
   it.each([undefined,'','  '])('uses the verified public default for %s',value=>{
     expect(resolveV2Address(value).toLowerCase()).toBe('0x9672b0aec292c9f8dd8fefbc9daab876b8ec9882');
@@ -17,7 +18,7 @@ describe('verified deployed V2 frontend configuration',()=>{
   it.each([RECEIVLEDGER_ADDRESS,'0x'+'00'.repeat(20),'0x'+'aa'.repeat(20),'not-an-address'])('rejects stale or incorrect address %s',value=>{
     expect(()=>resolveV2Address(value)).toThrow('must match the verified');
   });
-  it.each(['manager','investor','sme'] as const)('prepares %s public reads of the correct contract without activating writes',stakeholder=>{
+  it.each(['investor','sme'] as const)('prepares %s public reads of the correct contract without activating writes',stakeholder=>{
     vi.stubEnv('VITE_V2_CONTRACT_ADDRESS','');
     render(<V2App stakeholder={stakeholder} connectedWallet={V2_DEPLOYMENT.manager}/>);
     const field=screen.getByLabelText('Independent V2 contract address') as HTMLInputElement;
@@ -27,6 +28,16 @@ describe('verified deployed V2 frontend configuration',()=>{
     expect(V2_EXECUTION_ENABLED).toBe(false);
     const names=stakeholder==='sme'?['Submit / Accept V2 Financing Terms','Repay V2 financing']:stakeholder==='investor'?['Request Additional Investment','Submit redemption request']:['Finance invoice','Process investment','Settle redemption'];
     for(const name of names)expect((screen.getByRole('button',{name}) as HTMLButtonElement).disabled).toBe(true);
+  });
+  it('automatically reads the verified manager contract without exposing address overrides or activating writes',()=>{
+    vi.stubEnv('VITE_V2_CONTRACT_ADDRESS','');
+    const read=vi.spyOn(V2Ledger.prototype,'readReport').mockReturnValue(new Promise(()=>{}));
+    render(<V2App stakeholder="manager" connectedWallet={V2_DEPLOYMENT.manager}/>);
+    expect(read).toHaveBeenCalledWith(V2_DEPLOYMENT.manager);
+    expect(screen.getByRole('heading',{name:'V2 fund overview'})).toBeTruthy();
+    expect(screen.getByText('Execution disabled')).toBeTruthy();
+    expect(screen.queryByLabelText('Independent V2 contract address')).toBeNull();
+    expect(V2_EXECUTION_ENABLED).toBe(false);
   });
   it('fails closed on an incorrect Preview override while leaving scenarios usable',()=>{
     vi.stubEnv('VITE_V2_CONTRACT_ADDRESS',RECEIVLEDGER_ADDRESS);

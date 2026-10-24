@@ -18,6 +18,7 @@ export function UnifiedWorkspace() {
   const { application, authenticated, requiresRegistrationSession } = useRegistry();
   const stakeholder = useStakeholder();
   if (!account || !stakeholder) return <p className="notice info">Choose an Investor or SME application to explore the matching fund tools.</p>;
+  if (stakeholder === 'manager') return <V2App stakeholder="manager" connectedWallet={account} walletEpoch={walletEpoch} networkOk={networkOk} />;
   const status = application ? `${application.kind === 'sme' ? 'SME' : 'Investor'} application: ${application.status}`
     : requiresRegistrationSession ? 'Sign in to restore your application status.' : 'No current private application loaded; V1 roles do not grant V2 permissions.';
   return <><p className="support-copy" role="status">{status} {application && !authenticated ? 'A private wallet session is required to recheck this status.' : ''}</p>

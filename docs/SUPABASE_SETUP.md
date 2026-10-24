@@ -1,4 +1,12 @@
-# Latest manager-session behaviour
+# Current permanent-origin requirements — 24 October 2026
+
+The official website is **https://receivledger.vercel.app/**. Keep Auth Site URL and exact Redirect URL `https://receivledger.vercel.app/`; existing registry `ALLOWED_ORIGINS` must include `https://receivledger.vercel.app` without the slash. Keep approved local roots/origins and each explicitly approved Preview as separate exact entries. Do not switch Site URL away from production for Preview tests or add broad wildcard domains. The project name `receiv-ledger` does not determine the official public alias.
+
+Current read-only official-origin checks: registry OPTIONS 204 with exact CORS origin; unauthenticated POST 401; unapproved-origin OPTIONS 403. No registry origin change is indicated. Hosted Auth URL settings were not inspected; the SIWE URI rejection requires comparing the signed current-origin root to that Auth allowlist. No backend migration/deployment or permission change is required by the current frontend fixes. Hosted changes still need separate owner approval.
+
+See [FINAL_WEBSITE_REVIEW.md](FINAL_WEBSITE_REVIEW.md) for complete configuration/network evidence and [MANAGER_AUTH.md](MANAGER_AUTH.md) for secure same-tab session reuse and current restoration race fixes. This dated section supersedes older hyphenated-host, Preview-only, memory-only and first-time setup guidance below; applied migrations must not be rerun.
+
+# Previous manager-session behaviour
 
 [MANAGER_AUTH.md](MANAGER_AUTH.md) supersedes older memory-only client guidance: same-tab credentials can restore after refresh, but registry Auth/wallet validation and RLS remain required. Live official-origin OPTIONS/unauthenticated POST checks passed for https://receivledger.vercel.app; Auth redirect configuration still needs confirmation. No hosted change was made by this review.
 
@@ -55,7 +63,7 @@ The remaining pairs below are a reference for the subsequent guided steps. Do no
 ## Authentication settings (next pair after local configuration)
 
 1. In the project dashboard, open Authentication, then Sign In / Providers (sometimes labelled Providers), and enable the Web3 Wallet provider for Ethereum. Use a separate Ethereum-only identity for each demonstration wallet; linking additional login identities is intentionally rejected by this prototype's policies.
-2. In Authentication / URL Configuration, set Site URL to the app origin you are testing. Add exact Redirect URLs `http://localhost:5173/` and `http://localhost:4173/` for local testing. Add `https://receiv-ledger.vercel.app/` only when that origin is approved for this backend. The trailing slash matters because the signed URI is the origin root. Do not use broad wildcard preview-domain allowlists.
+2. In Authentication / URL Configuration, keep Site URL `https://receivledger.vercel.app/` for this production project and ensure that exact root is also an allowed Redirect URL. Add exact Redirect URLs `http://localhost:5173/` and `http://localhost:4173/` only for approved local testing, plus each explicitly approved Preview root. The trailing slash matches the signed origin-root URI. Do not use broad wildcard Preview allowlists or replace the stable production Site URL for local/Preview tests.
 
 The code uses `localhost`, not `127.0.0.1`, for HTTP wallet sign-in. Keep the project's Web3 rate limits enabled. This version does not include a CAPTCHA widget; enabling mandatory CAPTCHA would require adding the matching frontend integration first. Do not configure identity linking to work around a wallet mismatch error.
 

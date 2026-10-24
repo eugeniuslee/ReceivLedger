@@ -63,6 +63,14 @@ describe('private session and wallet isolation', () => {
     await waitFor(() => expect(current.error).toBe('Supabase authentication failed: Ethereum provider is disabled.'));
     expect(current.configured).toBe(true); expect(current.frontendConfigurationError).toBeNull();
   });
+  it('explains a hosted SIWE origin rejection without requesting another signature automatically', async () => {
+    signIn.mockResolvedValue({data:{session:null},error:new Error('Signed Ethereum message is using URI which is not allowed on this server, message was signed for another app.')});
+    render(<RegistryProvider client={client}><Probe/></RegistryProvider>);
+    fireEvent.click(screen.getByRole('button',{name:'Sign in'}));
+    await waitFor(()=>expect(current.error).toContain('exact sign-in URL shown below'));
+    expect(current.authenticated).toBe(false);expect(registryRequest).not.toHaveBeenCalled();
+    expect(wallet.signWalletMessage).toHaveBeenCalledOnce();
+  });
   it('identifies backend/bootstrap failures separately from frontend configuration and Auth', async () => {
     vi.mocked(registryRequest).mockRejectedValueOnce(new Error('Registration RPC is unavailable.'));
     render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
@@ -340,5 +348,54 @@ describe('refresh-safe private session validation',()=>{
     await act(async()=>authListener('SIGNED_IN',{user:{id:'other-user'},access_token:'other-token'} as Session));
     expect(current.authenticated).toBe(false);expect(current.registeredName).toBeNull();
     await expect(current.request({action:'applications'})).rejects.toThrow('Sign in');
+  });
+  it('discards a stored-session bootstrap if Auth changes user before restoration completes',async()=>{
+    getSession.mockResolvedValue({data:{session:stored()},error:null});
+    let finish!: (value: unknown) => void;
+    vi.mocked(registryRequest).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+    render(<RegistryProvider client={client}><Probe/></RegistryProvider>);
+    await waitFor(()=>expect(registryRequest).toHaveBeenCalledOnce());
+    await act(async()=>authListener('SIGNED_IN',{user:{id:'other-user'},access_token:'other-token'} as Session));
+    await act(async()=>finish(snapshot()));
+    expect(current.authenticated).toBe(false);expect(current.application).toBeNull();
+    expect(current.error).toContain('authentication session changed');
+  });
+  it('retries restoration with a refreshed same-user token if the old token expires during bootstrap',async()=>{
+    getSession.mockResolvedValueOnce({data:{session:stored()},error:null})
+      .mockResolvedValue({data:{session:{...stored(),access_token:'refreshed-session'}},error:null});
+    vi.mocked(registryRequest).mockRejectedValueOnce(new RegistryRequestError('Expired token',401));
+    render(<RegistryProvider client={client}><Probe/></RegistryProvider>);
+    await waitFor(()=>expect(current.authenticated).toBe(true));
+    expect(registryRequest).toHaveBeenCalledWith(client,'refreshed-session',{action:'bootstrap'});
+    expect(signOut).not.toHaveBeenCalled();expect(signIn).not.toHaveBeenCalled();expect(wallet.signWalletMessage).not.toHaveBeenCalled();
+  });
+  it('retains a token refresh received during a successful bootstrap for subsequent private requests',async()=>{
+    getSession.mockResolvedValue({data:{session:stored()},error:null});
+    let finish!: (value: unknown) => void;
+    vi.mocked(registryRequest).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+    render(<RegistryProvider client={client}><Probe/></RegistryProvider>);
+    await waitFor(()=>expect(registryRequest).toHaveBeenCalledOnce());
+    await act(async()=>authListener('TOKEN_REFRESHED',{user:{id:'user'},access_token:'new-during-bootstrap'} as Session));
+    await act(async()=>finish(snapshot()));
+    await current.request({action:'documents'});
+    expect(registryRequest).toHaveBeenLastCalledWith(client,'new-during-bootstrap',{action:'documents'});
+    expect(signOut).not.toHaveBeenCalled();expect(wallet.signWalletMessage).not.toHaveBeenCalled();
+  });
+  it('does not retry a rejected restoration with a different user’s token',async()=>{
+    getSession.mockResolvedValueOnce({data:{session:stored()},error:null})
+      .mockResolvedValue({data:{session:{...stored(),user:{id:'other-user'},access_token:'other-token'}},error:null});
+    vi.mocked(registryRequest).mockRejectedValueOnce(new RegistryRequestError('Session revoked',401));
+    render(<RegistryProvider client={client}><Probe/></RegistryProvider>);
+    await waitFor(()=>expect(current.error).toContain('revoked'));
+    expect(registryRequest).toHaveBeenCalledOnce();expect(current.authenticated).toBe(false);expect(signOut).toHaveBeenCalled();
+  });
+  it('invalidates an Auth user change between validation completion and the next React render',async()=>{
+    render(<RegistryProvider client={client}><Probe/></RegistryProvider>);
+    await act(async()=>{
+      await current.signIn();
+      authListener('SIGNED_IN',{user:{id:'other-user'},access_token:'other-token'} as Session);
+    });
+    expect(current.authenticated).toBe(false);expect(current.application).toBeNull();
+    expect(current.error).toContain('authentication session changed');
   });
 });
