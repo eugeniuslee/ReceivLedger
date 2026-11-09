@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { RegistryChain } from './chain.ts';
 import { assertManager, assertApplicationReview, invoiceId, MAX_PDF_BYTES, PRIVATE_BUCKET, registrationInput, requireUuid, type Application, type PrivateDocument } from './domain.ts';
 import { validatePdf } from './pdf.ts';
+import { handlePurchaseRequest } from './purchases.ts';
 
 interface Dependencies { admin: SupabaseClient; userClient: (token: string) => SupabaseClient; chain: RegistryChain; origins: string[] }
 function checked<T>({ data, error }: { data: T; error: { message: string } | null }): T {
@@ -51,8 +52,11 @@ export function createRegistryHandler({ admin, userClient, chain, origins }: Dep
       const multipart = request.headers.get('content-type')?.startsWith('multipart/form-data');
       const raw = await boundedBody(request, multipart ? MAX_PDF_BYTES + 65536 : 32768);
       const form = multipart ? await new Response(new Uint8Array(raw).buffer, { headers: { 'content-type': request.headers.get('content-type')! } }).formData() : null;
-      const input = multipart ? { action: 'upload' } : JSON.parse(new TextDecoder().decode(raw));
+      const input = multipart ? { action: form?.get('action') === 'purchase_upload' ? 'purchase_upload' : 'upload' } : JSON.parse(new TextDecoder().decode(raw));
       const action = input.action;
+      if (typeof action === 'string' && action.startsWith('purchase_')) {
+        return await handlePurchaseRequest({ admin, user, chain, ownerId, wallet, manager, headers }, input, form);
+      }
       if (action === 'bootstrap') {
         const application = checked(await user.from('rl_applications').select('*').eq('user_id', ownerId).maybeSingle());
         return json({ profile, application, isManager });

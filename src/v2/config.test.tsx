@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resolveV2Address, V2_DEPLOYMENT } from './config';
 import { V2App } from './V2App';
@@ -21,12 +21,13 @@ describe('verified deployed V2 frontend configuration',()=>{
   it.each(['investor','sme'] as const)('prepares %s public reads of the correct contract without activating writes',stakeholder=>{
     vi.stubEnv('VITE_V2_CONTRACT_ADDRESS','');
     render(<V2App stakeholder={stakeholder} connectedWallet={V2_DEPLOYMENT.manager}/>);
-    const field=screen.getByLabelText('Independent V2 contract address') as HTMLInputElement;
+    const field=screen.getByLabelText('Fund contract address') as HTMLInputElement;
     expect(field.value.toLowerCase()).toBe(V2_DEPLOYMENT.address);expect(field.readOnly).toBe(true);
-    expect((screen.getByRole('button',{name:'Read V2 fund'}) as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByText('V2 is deployed on Sepolia. Financial execution remains disabled.')).toBeTruthy();
+    expect((screen.getByRole('button',{name:'Refresh fund records'}) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText(/Requests are not available from this workspace yet/)).toBeTruthy();
     expect(V2_EXECUTION_ENABLED).toBe(false);
-    const names=stakeholder==='sme'?['Submit / Accept V2 Financing Terms','Repay V2 financing']:stakeholder==='investor'?['Request Additional Investment','Submit redemption request']:['Finance invoice','Process investment','Settle redemption'];
+    fireEvent.click(screen.getByText(stakeholder==='sme'?'Financing calculator':'Estimate a redemption'));
+    const names=stakeholder==='sme'?['Submit financing request']:['Submit redemption request'];
     for(const name of names)expect((screen.getByRole('button',{name}) as HTMLButtonElement).disabled).toBe(true);
   });
   it('automatically reads the verified manager contract without exposing address overrides or activating writes',()=>{
@@ -34,17 +35,17 @@ describe('verified deployed V2 frontend configuration',()=>{
     const read=vi.spyOn(V2Ledger.prototype,'readReport').mockReturnValue(new Promise(()=>{}));
     render(<V2App stakeholder="manager" connectedWallet={V2_DEPLOYMENT.manager}/>);
     expect(read).toHaveBeenCalledWith(V2_DEPLOYMENT.manager);
-    expect(screen.getByRole('heading',{name:'V2 fund overview'})).toBeTruthy();
+    expect(screen.getByRole('heading',{name:'Fund overview'})).toBeTruthy();
     expect(screen.getByText('Execution disabled')).toBeTruthy();
-    expect(screen.queryByLabelText('Independent V2 contract address')).toBeNull();
+    expect(screen.queryByLabelText('Fund contract address')).toBeNull();
     expect(V2_EXECUTION_ENABLED).toBe(false);
   });
   it('fails closed on an incorrect Preview override while leaving scenarios usable',()=>{
     vi.stubEnv('VITE_V2_CONTRACT_ADDRESS',RECEIVLEDGER_ADDRESS);
     render(<V2App stakeholder="sme" connectedWallet={V2_DEPLOYMENT.manager}/>);
     expect(screen.getByRole('alert').textContent).toContain('must match the verified');
-    expect((screen.getByRole('button',{name:'Read V2 fund'}) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText('SME financing quotation')).toBeTruthy();
+    expect((screen.getByRole('button',{name:'Refresh fund records'}) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('Financing calculator')).toBeTruthy();
     expect(V2_EXECUTION_ENABLED).toBe(false);
   });
 });

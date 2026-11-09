@@ -13,7 +13,7 @@ export function Assets() {
   return <>
     <section className="section-block"><h2>My Assets</h2><p>{registeredName ?? 'Your connected investor wallet'}</p><p className="mono selectable-address">{account}</p>
       <dl className="detail-list"><div><dt>RLU holdings</dt><dd>{balance === null ? 'Live balance unavailable. Refresh blockchain.' : `${formatInteger(balance)} RLU`}</dd></div></dl>
-      <p className="footnote">RLU has no cash redemption function. Illustrative NAV and portfolio value below are not realised profit, a withdrawal balance or a payment commitment.</p>
+      <p className="footnote">RLU has no cash redemption function. Value estimates below are not a withdrawal balance or earned returns.</p>
     </section>
     <InvestorReporting />
     <Investors investorTransferOnly />

@@ -6,13 +6,13 @@ import type { PageId } from '../chain/access';
 import { useRegistry } from '../registration/RegistryContext';
 
 export function ProfileMenu({ onNavigate }: { onNavigate: (page: PageId) => void }) {
-  const { account, role, disconnect, transactionPending } = useLedger();
+  const { account, role, isV2Manager, disconnect, transactionPending } = useLedger();
   const { registeredName, authenticated, signOut } = useRegistry();
   const [open, setOpen] = useState(false);
   const [feedback, setFeedback] = useState('');
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const identity = walletIdentity(role);
+  const identity = walletIdentity(role, isV2Manager);
   const name = registeredName ?? identity.name;
   const initials = name.trim().split(/\s+/).map(word => word[0]).slice(0, 2).join('').toUpperCase();
 
@@ -43,8 +43,8 @@ export function ProfileMenu({ onNavigate }: { onNavigate: (page: PageId) => void
       <span className="profile-summary"><strong>{name}</strong><span>{registeredName ? `${identity.name} · ` : ''}{shortAddress(account)}</span></span><span aria-hidden="true">⌄</span>
     </button>
     {open && <div className="profile-dropdown" id="profile-options" aria-label="Account options">
-      <p className="profile-caption">{authenticated ? 'Signed-in wallet profile' : role ? 'Wallet role · sign in for your profile' : 'Resolving wallet role…'}</p>
-      <button disabled={!role} onClick={() => navigate('profile')}>My Profile</button>
+      <p className="profile-caption">{authenticated ? 'Signed-in wallet profile' : role || isV2Manager ? 'Wallet role · sign in for your profile' : 'Resolving wallet role…'}</p>
+      <button disabled={!role && !isV2Manager} onClick={() => navigate('profile')}>My Profile</button>
       <button onClick={() => void copyAddress()}>Copy Wallet Address</button>
       <button onClick={() => navigate('settings')}>Settings</button>
       <button disabled={transactionPending} onClick={() => { setOpen(false); void disconnect(); void signOut(); }}>Disconnect</button>

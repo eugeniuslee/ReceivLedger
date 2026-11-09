@@ -12,7 +12,7 @@ interface ActionNotice {
 }
 
 export function InvestorAdmin() {
-  const { account, role, networkOk, snapshot, events, eventsLoading, eventsError, eventIndexComplete, ledger, transactionPending, runTransaction } = useLedger();
+  const { account, role, networkOk, snapshot, loading, walletChecking, error, refresh, events, eventsLoading, eventsError, eventIndexComplete, ledger, transactionPending, runTransaction } = useLedger();
   const [manualAddresses, setManualAddresses] = useState<string[]>([]);
   const [addressInput, setAddressInput] = useState('');
   const [accounts, setAccounts] = useState<InvestorAccount[]>([]);
@@ -29,6 +29,7 @@ export function InvestorAdmin() {
   activeAccountRef.current = account;
 
   const managerSnapshot = snapshot?.role === 'manager' ? snapshot : null;
+  const canAdministerInvestors = role === 'manager' && managerSnapshot !== null;
   const addresses = useMemo(() => discoverInvestorAddresses(events, manualAddresses), [events, manualAddresses]);
   const selected = selectedAddress ? accounts.find(item => item.address.toLowerCase() === selectedAddress.toLowerCase()) : undefined;
   const holdingsComplete = eventIndexComplete && !eventsError;
@@ -38,7 +39,7 @@ export function InvestorAdmin() {
   }, [accounts]);
 
   const fetchInvestor = useCallback(async (address: string, force = false): Promise<InvestorAccount | null> => {
-    if (!ledger || !networkOk || role !== 'manager') return null;
+    if (!ledger || !networkOk || !canAdministerInvestors) return null;
     const key = address.toLowerCase();
     const cached = accountsRef.current.find(item => item.address.toLowerCase() === key);
     if (cached && !force) return cached;
@@ -76,10 +77,10 @@ export function InvestorAdmin() {
     });
     pendingReads.current.set(key, read);
     return read;
-  }, [ledger, networkOk, role, account]);
+  }, [ledger, networkOk, canAdministerInvestors, account]);
 
   useEffect(() => {
-    if (role !== 'manager' || !networkOk || !addresses.length) return;
+    if (!canAdministerInvestors || !networkOk || !addresses.length) return;
     let cancelled = false;
     const missing = addresses.filter(address => !accountsRef.current.some(item => item.address.toLowerCase() === address.toLowerCase()));
     if (!missing.length) return;
@@ -90,7 +91,7 @@ export function InvestorAdmin() {
       }
     })();
     return () => { cancelled = true; };
-  }, [addresses, role, networkOk, fetchInvestor]);
+  }, [addresses, canAdministerInvestors, networkOk, fetchInvestor]);
 
   const knownAddressSet = useMemo(() => new Set(addresses.map(address => address.toLowerCase())), [addresses]);
   const visibleAccounts = accounts.filter(item => knownAddressSet.has(item.address.toLowerCase()));
@@ -186,8 +187,18 @@ export function InvestorAdmin() {
   }
 
   if (!networkOk) return <div className="empty-state">Switch to Sepolia to load investor ownership data.</div>;
-  if (role !== 'manager') return <div className="notice error" role="alert">Investor administration is available only to the Fund Manager.</div>;
-  if (!managerSnapshot) return <div className="empty-state">Loading fund manager investor data…</div>;
+  if (!snapshot) {
+    if (loading || walletChecking) return <div className="empty-state" role="status">Loading fund manager investor data…</div>;
+    return <section className="section-block">
+      <div className="notice error" role="alert"><p>Investor administration data is unavailable. Retry the blockchain connection to check this wallet’s access.</p>{error && <p>{error}</p>}</div>
+      <button className="btn outline" onClick={() => void refresh(true)}>Retry blockchain</button>
+    </section>;
+  }
+  if (!managerSnapshot || role !== 'manager') return <section className="section-block">
+    <h2>RLU fund manager required</h2>
+    <p className="notice warning" role="alert">This wallet cannot administer investors in the RLU fund. Connect the RLU fund manager wallet to approve investors or issue tokens.</p>
+    <p>RLU fund manager wallet: <span className="mono">{snapshot.manager}</span></p>
+  </section>;
 
   const indexMessage = eventsError
     ? `History indexing failed: ${eventsError}. Known wallets are partial and ownership percentages are hidden.`

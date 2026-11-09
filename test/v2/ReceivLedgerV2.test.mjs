@@ -121,6 +121,49 @@ check('normal transfers require approved counterparties and cannot transfer dire
  await f.capital();await assert.rejects(f.call(investor,'transfer',[outsider,100n]));await f.call(manager,'setInvestor',[outsider,hash('verified-investor-b'),3]);await f.call(investor,'transfer',[outsider,100n]);
  await assert.rejects(f.call(outsider,'transfer',[f.address,100n]));assert.equal(await f.get('balanceOf',outsider),100n);
 });
+check('transferred fractional units redeem for the recipient at NAV including repaid interest and the single processing fee',async f=>{
+ const capital=10000000n,principal=400000n,quantity=123456n;
+ await f.capital(capital);const loan=await financed(f,principal);f.advance(20n*86400n);
+ const interest=principal*800n*20n/3650000n;
+ await f.call(manager,'recordCollection',[loan,principal+interest,false,f.unique()]);
+ const nav=capital+2000n+interest;
+ assert.equal(await f.get('navCents'),nav);assert.equal(await f.get('processingIncomeCents'),2000n);
+ await f.call(manager,'setInvestor',[outsider,hash('verified-transfer-recipient'),3]);
+ await f.call(investor,'transfer',[outsider,quantity]);
+ assert.equal(await f.get('balanceOf',investor),capital-quantity);assert.equal(await f.get('balanceOf',outsider),quantity);
+ assert.equal(await f.get('totalSupply'),capital);assert.equal(await f.get('navCents'),nav);assert.equal(await f.get('liquidCents'),nav);
+ // A transfer changes ownership, never subscription cash or the number of issued units.
+ assert.equal(await f.get('totalSubscribedCents'),capital);assert.equal(await f.get('subscriptionCount'),1n);
+ await assert.rejects(f.call(investor,'requestRedemption',[capital,1n]));
+ const payout=quantity*nav/capital;
+ await f.call(outsider,'requestRedemption',[quantity,payout]);
+ assert.equal(await f.get('balanceOf',outsider),0n);assert.equal(await f.get('balanceOf',f.address),quantity);
+ await assert.rejects(f.call(investor,'cancelRedemption',[1n]));
+ await assert.rejects(f.call(outsider,'transfer',[investor,1n]));
+ await f.call(manager,'approveRedemption',[1n]);
+ assert.equal((await f.call(manager,'redemptions',[1n])).payoutCents,payout);
+ await assert.rejects(f.call(outsider,'settleRedemption',[1n]));
+ await f.call(manager,'settleRedemption',[1n]);
+ assert.equal(await f.get('totalSupply'),capital-quantity);assert.equal(await f.get('balanceOf',f.address),0n);
+ assert.equal(await f.get('totalRedeemedCents'),payout);assert.equal(await f.get('navCents'),nav-payout);
+ assert.equal(await f.get('processingIncomeCents'),2000n);assert.equal(await f.get('collectedInterestCents'),interest);
+ await assert.rejects(f.call(manager,'settleRedemption',[1n]));
+});
+check('delegated transfers recheck both investor approvals and preserve balances and allowance when rejected',async f=>{
+ await f.capital(1000000n);await f.call(manager,'setInvestor',[outsider,hash('verified-transfer-recipient'),3]);
+ await f.call(investor,'approve',[executor,300n]);await f.call(executor,'transferFrom',[investor,outsider,100n]);
+ assert.equal(await f.get('allowance',investor,executor),200n);
+ await f.call(manager,'setParticipant',[investor,true,false]);
+ await assert.rejects(f.call(executor,'transferFrom',[investor,outsider,100n]));
+ await f.call(manager,'setParticipant',[investor,true,true]);await f.call(manager,'setParticipant',[outsider,true,false]);
+ await assert.rejects(f.call(executor,'transferFrom',[investor,outsider,100n]));
+ assert.equal(await f.get('allowance',investor,executor),200n);
+ assert.equal(await f.get('balanceOf',investor),999900n);assert.equal(await f.get('balanceOf',outsider),100n);
+ await f.call(manager,'setParticipant',[outsider,true,true]);await f.call(executor,'transferFrom',[investor,outsider,100n]);
+ assert.equal(await f.get('allowance',investor,executor),100n);
+ assert.equal(await f.get('balanceOf',investor),999800n);assert.equal(await f.get('balanceOf',outsider),200n);
+ assert.equal(await f.get('totalSupply'),1000000n);assert.equal(await f.get('navCents'),1000000n);
+});
 for(const [method,args] of [['configureAutomation',[true,1000000n,500000n,0]],['setOperator',[outsider,true,true]],['setParticipant',[outsider,true,true]],['confirmValuation',[1800001000n]],['pause',[]],['setImpairment',[1n,0n]],['recordCollection',[1n,100n,false,hash('receipt')]]])check('unprivileged caller cannot '+method,async f=>{await assert.rejects(f.call(outsider,method,args));});
 check('executor cannot attest funding, grant permissions, approve larger invoices or approve redemptions',async f=>{
  await f.capital();await f.call(manager,'setOperator',[executor,true,false]);const loan=await f.invoice(1000000n);

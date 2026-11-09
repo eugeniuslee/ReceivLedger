@@ -111,7 +111,7 @@ describe('new-wallet onboarding and secure registration forms', () => {
     registry.application = application;
     render(<LedgerApp />);
     expect(screen.getByRole('heading', { name: 'Investor application dashboard' })).toBeTruthy();
-    expect(screen.getByText(/up to 3 working days/)).toBeTruthy();
+    expect(screen.getByText(/Your application is awaiting review/)).toBeTruthy();
     const navigation = within(screen.getByRole('navigation', { name: 'Main navigation' }));
     fireEvent.click(navigation.getByRole('button', { name: /My Assets/ }));
     expect(screen.getByText(/Manager verification is pending/)).toBeTruthy();

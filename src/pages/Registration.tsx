@@ -16,7 +16,7 @@ export function ApplicationStatus({ application: app }: { application: Applicati
   return <div className={`notice ${['rejected', 'suspended', 'revoked'].includes(app.status) ? 'warning' : 'info'}`}>
     <b>Application: {statusLabels[app.status]}</b>
     {app.review_note && <p>Manager note: {app.review_note}</p>}
-    {['pending', 'needs_info'].includes(app.status) && <p>Estimated demo review target: up to 3 working days. This is illustrative and is not a guaranteed service commitment.</p>}
+    {['pending', 'needs_info'].includes(app.status) && <p>Your application is awaiting review. Check here for updates or requests for more information.</p>}
     <p>{app.kind === 'sme' ? 'SME verification is off-chain. Website restrictions do not prevent direct submitInvoice calls to Solidity.' : 'Live contract approval is required for RLU transfers. Off-chain approval never overrides on-chain revocation.'}</p>
   </div>;
 }

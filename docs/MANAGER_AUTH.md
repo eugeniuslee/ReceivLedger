@@ -1,6 +1,20 @@
 # Fund Manager recognition and private authentication
 
-## Current findings — 24 October 2026
+## Current role handling — 9 November 2026
+
+The app reads each contract's current authority rather than granting permissions from a wallet name or a fixed manager address. RLU uses `manager()`; RLU2 uses `owner()`. The backend also reads the RLU manager on authenticated requests before deciding access to applications and purchase requests.
+
+RLU2 ownership no longer replaces the connected wallet's RLU role. An RLU2-only owner can open public fund reports and the financing workspace, but does not gain RLU investor administration, invoice approval or private purchase-review access. Its **RLU Purchase Requests** entry explains the separate RLU manager requirement rather than showing an empty personal list. A wallet that owns RLU2 and is an approved RLU investor retains its investor tools. Header and profile labels distinguish RLU2 ownership.
+
+RLU2 public reports use the connected wallet's read-only provider first. A connection failure can retry the complete report through the public Sepolia endpoint; partial records from different sources are never combined. Reads have bounded deadlines and can be retried after failure. Wallet, network and provider changes discard old results. This does not activate RLU2 financial transactions.
+
+To investigate access, open **Settings → Check manager wallets** on Sepolia. The check reads the RLU manager and RLU2 owner/pending owner at a common block through the connected wallet's provider. It also displays the existing private session's purchase-review permission. It does not request a signature, change ownership or grant access. Wallet or network changes discard old results; a failed source is shown as unavailable.
+
+The existing RLU contract assigns its manager in the constructor and has no manager-transfer function. Changing an app setting or the database mirror cannot transfer that authority. RLU2 supports two-step ownership transfer, which affects RLU2 only; this UI change does not initiate a transfer or enable financial execution.
+
+The RLU contract address remains coordinated with backend receipt checks and database constraints. Changing only the frontend contract address would break that agreement and is not a manager-recognition fix.
+
+## Historical findings — 24 October 2026
 
 The prior 23 October fixes below are committed in `d0c063e`, including remote `main` confirmed with read-only `git ls-remote`. This review adds local uncommitted fixes; see [FINAL_WEBSITE_REVIEW.md](FINAL_WEBSITE_REVIEW.md) for exact files and evidence. Its current status supersedes older branch/publication wording below.
 
