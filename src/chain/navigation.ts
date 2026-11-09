@@ -14,10 +14,10 @@ export function readNavigation(storage: Pick<Storage, 'getItem'>): NavigationSta
   return { account: null, page: 'dashboard' };
 }
 
-export function resolveWalletNavigation(previous: NavigationState, account: string | null, role: WalletRole | null): NavigationState {
+export function resolveWalletNavigation(previous: NavigationState, account: string | null, role: WalletRole | null, isV2Manager = false): NavigationState {
   if (!account) return previous;
   const sameWallet = previous.account?.toLowerCase() === account.toLowerCase();
-  const page = sameWallet && (role === null || canAccessPage(role, previous.page)) ? previous.page : 'dashboard';
+  const page = sameWallet && (role === null && !isV2Manager || canAccessPage(role, previous.page, isV2Manager)) ? previous.page : 'dashboard';
   return { account, page };
 }
 
@@ -26,7 +26,10 @@ export const WALLET_ROLE_LABELS: Record<WalletRole, string> = {
   sme: 'Invoice wallet', provisional: 'Unregistered wallet',
 };
 
-export function walletIdentity(role: WalletRole | null) {
-  const name = role ? WALLET_ROLE_LABELS[role] : 'Connected wallet';
+export function walletIdentity(role: WalletRole | null, isV2Manager = false) {
+  const rluName = role ? WALLET_ROLE_LABELS[role] : 'Connected wallet';
+  const name = isV2Manager && role !== 'manager'
+    ? role && role !== 'provisional' ? `${rluName} · RLU2 fund owner` : 'RLU2 fund owner'
+    : rluName;
   return { name, initials: name.split(' ').map(word => word[0]).slice(0, 2).join('').toUpperCase() };
 }

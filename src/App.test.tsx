@@ -1,4 +1,4 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LedgerApp } from './App';
@@ -7,6 +7,7 @@ import { NAVIGATION_KEY } from './chain/navigation';
 import type { WalletRole } from './chain/chainLedger';
 import { resetBrowserStorage } from './test/browserStorage';
 import { V2Ledger } from './v2/V2Ledger';
+import * as Registry from './registration/RegistryContext';
 
 vi.mock('./chain/LedgerContext', () => ({ useLedger: vi.fn(), LedgerProvider: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock('./pages/Dashboard', () => ({ Dashboard: () => <div>Wallet home content</div> }));
@@ -34,12 +35,90 @@ afterEach(()=>{cleanup();vi.restoreAllMocks();});
 function openProfileMenu() { fireEvent.click(screen.getByRole('button', { name: /^Account:/ })); }
 
 describe('Stage A wallet navigation and account controls', () => {
+  it.each(['provisional', null] as const)('keeps public fund tools and purchase-access guidance available when the RLU role is %s', role => {
+    wallet = { ...wallet, role, isManager: false, isV2Manager: true };
+    render(<LedgerApp />);
+    const main = screen.getByRole('navigation', { name: 'Main navigation' });
+    expect(within(main).getAllByRole('button').map(button => button.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual([
+      'Home', 'Financial Reports', 'RLU Purchase Requests', 'Financing & Fund Requests',
+    ]);
+    expect(screen.getByRole('button', { name: 'Account: RLU2 fund owner' })).toBeTruthy();
+    expect(screen.getByText('Wallet home content')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Review applications' })).toBeNull();
+    fireEvent.click(within(main).getByRole('button', { name: /Financial Reports/ }));
+    expect(screen.getByRole('heading', { name: 'RLU2 fund report' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Verify Fund Manager Wallet' })).toBeNull();
+    fireEvent.click(within(main).getByRole('button', { name: /Financing & Fund Requests/ }));
+    expect(screen.getByRole('heading', { name: 'Fund overview' })).toBeTruthy();
+    expect(screen.getByText('Execution disabled')).toBeTruthy();
+    expect(wallet.runTransaction).not.toHaveBeenCalled();
+    expect(wallet.signWalletMessage).not.toHaveBeenCalled();
+  });
+
+  it('preserves the RLU investor workflow alongside RLU2 ownership', () => {
+    wallet = { ...wallet, role: 'investor', isManager: false, isInvestor: true, isV2Manager: true };
+    render(<LedgerApp />);
+    const main = screen.getByRole('navigation', { name: 'Main navigation' });
+    expect(within(main).getByRole('button', { name: /Buy RLU/ })).toBeTruthy();
+    expect(within(main).getByRole('button', { name: /My Assets/ })).toBeTruthy();
+    expect(within(main).getByRole('button', { name: /Financial Reports/ })).toBeTruthy();
+    expect(within(main).queryByRole('button', { name: /Applications|Investors|Invoices|Purchase Requests/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Account: Approved investor · RLU2 fund owner' })).toBeTruthy();
+    fireEvent.click(within(main).getByRole('button', { name: /Buy RLU/ }));
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Buy RLU');
+    expect(screen.queryByRole('button', { name: 'Verify Fund Manager Wallet' })).toBeNull();
+  });
+
+  it('restores the purchase route as access guidance without loading private investor requests', () => {
+    const request = vi.fn();
+    vi.spyOn(Registry, 'useRegistry').mockReturnValue({ configured: true, authenticated: true, busy: false,
+      error: null, application: null, registeredName: null, isManager: false,
+      signIn: vi.fn(), signOut: vi.fn(), reload: vi.fn(), request, displayName: vi.fn() });
+    window.sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify({ account: walletA, page: 'purchases' }));
+    wallet = { ...wallet, role: 'provisional', isManager: false, isV2Manager: true,
+      snapshot: { role: 'provisional', manager: walletB, approved: false, connectedBalance: 0n } };
+    render(<LedgerApp />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('RLU Purchase Requests');
+    expect(screen.getByRole('heading', { name: 'RLU purchase manager access required' })).toBeTruthy();
+    expect(screen.getByText(walletB)).toBeTruthy();
+    expect(screen.queryByText('No purchase requests yet.')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Approve purchase request' })).toBeNull();
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each(['applications', 'investors', 'invoices'])('rejects a saved RLU manager %s route for an RLU2-only owner', page => {
+    window.sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify({ account: walletA, page }));
+    wallet = { ...wallet, role: 'provisional', isManager: false, isV2Manager: true };
+    render(<LedgerApp />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Home');
+    expect(screen.getByText('Wallet home content')).toBeTruthy();
+    expect(screen.queryByText('Investor controls')).toBeNull();
+    expect(screen.queryByText('Invoice controls')).toBeNull();
+  });
+
+  it('clears RLU manager navigation on a wallet change and removes public reports when ownership is lost', () => {
+    const view = render(<LedgerApp />);
+    fireEvent.click(screen.getByRole('button', { name: /Investors/ }));
+    expect(screen.getByText('Investor controls')).toBeTruthy();
+    wallet = { ...wallet, account: walletB, role: 'provisional', isManager: false, isV2Manager: true, walletEpoch: 1 };
+    view.rerender(<LedgerApp />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Home');
+    expect(screen.queryByText('Investor controls')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Financial Reports/ }));
+    expect(screen.getByRole('heading', { name: 'RLU2 fund report' })).toBeTruthy();
+    wallet = { ...wallet, isV2Manager: false };
+    view.rerender(<LedgerApp />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Home');
+    expect(screen.queryByRole('button', { name: /Financial Reports/ })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'RLU2 fund report' })).toBeNull();
+  });
+
   it.each<WalletRole>(['manager','investor','sme'])('opens the shared fund tools from %s Home', role => {
     wallet.role=role;
     render(<LedgerApp />);
-    fireEvent.click(screen.getByRole('button',{name:'Open financing and fund tools'}));
+    fireEvent.click(screen.getByRole('button',{name:role==='manager'?'Review fund requests':role==='sme'?'Explore financing':'View investment tools'}));
     expect(screen.getByRole('heading',{level:1}).textContent).toBe('Financing & Fund Requests');
-    expect(screen.getByText(role==='manager'?'Execution disabled':'V2 is deployed on Sepolia. Financial execution remains disabled.')).toBeTruthy();
+    expect(screen.getByText(role==='manager'?'Execution disabled':/Requests are not available from this workspace yet/)).toBeTruthy();
     expect(screen.queryByRole('navigation',{name:'V2 preview sections'})).toBeNull();
     expect(wallet.runTransaction).not.toHaveBeenCalled();
     expect(wallet.signWalletMessage).not.toHaveBeenCalled();
@@ -54,15 +133,15 @@ describe('Stage A wallet navigation and account controls', () => {
     expect(screen.queryByText('V2 is deployed on Sepolia. Financial execution remains disabled.')).toBeNull();
   });
 
-  it('orders the manager workflow and groups support links above the prototype note', () => {
+  it('orders the manager workflow and keeps a compact network note below support links', () => {
     render(<LedgerApp />);
     const main = screen.getByRole('navigation', { name: 'Main navigation' });
     expect(within(main).getAllByRole('button').map(button => button.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual([
-      'Home', 'Financial Reports', 'Applications', 'Investors', 'Invoices', 'Transaction History', 'Financing & Fund Requests',
+      'Home', 'Financial Reports', 'Applications', 'Purchase Requests', 'Investors', 'Invoices', 'Transaction History', 'Financing & Fund Requests',
     ]);
     const footer = screen.getByRole('navigation', { name: 'Support navigation' }).parentElement!;
     expect(footer.className).toBe('side-footer');
-    expect(within(footer).getByText('Ethereum Sepolia · University prototype')).toBeTruthy();
+    expect(within(footer).getByText('Ethereum Sepolia')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /About ReceivLedger/ }));
     expect(screen.getByRole('heading', { name: 'About ReceivLedger', level: 2 })).toBeTruthy();
     expect(screen.queryByText(/ReceiveLedger/)).toBeNull();
@@ -183,7 +262,7 @@ describe('Stage A wallet navigation and account controls', () => {
     fireEvent.click(screen.getByRole('button', { name: /Help & Support/ }));
     expect(screen.getByText('No project support contact has been configured.', { exact: false })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /About ReceivLedger/ }));
-    expect(screen.getByText('What the prototype represents')).toBeTruthy();
+    expect(screen.getByText('How ReceivLedger works')).toBeTruthy();
   });
 
   it('honours the preference to forget the current page on reload', () => {

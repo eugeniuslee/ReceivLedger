@@ -1,67 +1,97 @@
 import { useState } from 'react';
+import type { Provider } from 'ethers';
 import { resolveV2Address, V2_DEPLOYMENT } from './config';
 import { money, moneyInput } from '../finance/models';
 import { v2Eligibility, v2Quote, subscriptionPreview } from './models';
 import { usePublicReport } from './usePublicReport';
 import { InvestmentPolicy, RedemptionDraft, ManagerDraft, RequestHistory } from './RequestPanels';
-import {InvestorAssets,ManagerReport} from './Reports';
+import { InvestorAssets, ManagerReport } from './Reports';
 import { userFacingError } from '../errors';
 import { ManagerOperations } from './ManagerOperations';
 
-type WorkspaceProps = {stakeholder?:'manager'|'investor'|'sme';connectedWallet?:string;walletEpoch?:number;networkOk?:boolean};
+type WorkspaceProps = { stakeholder?: 'manager' | 'investor' | 'sme'; connectedWallet?: string; walletEpoch?: number; networkOk?: boolean; readProvider?: Provider | null };
 export function V2App(props: WorkspaceProps = {}) {
-  if (props.stakeholder === 'manager') return <ManagerOperations key={`${props.connectedWallet}:${props.walletEpoch}:${props.networkOk}`} wallet={props.connectedWallet ?? ''} epoch={props.walletEpoch ?? 0} networkOk={props.networkOk ?? true} />;
+  if (props.stakeholder === 'manager') return <ManagerOperations key={`${props.connectedWallet}:${props.walletEpoch}:${props.networkOk}`} wallet={props.connectedWallet ?? ''} epoch={props.walletEpoch ?? 0} networkOk={props.networkOk ?? true} readProvider={props.readProvider} />;
   return <V2Preview {...props} />;
 }
-function V2Preview({stakeholder,connectedWallet,walletEpoch=0,networkOk=true}:WorkspaceProps) {
-  const initialTab=stakeholder==='manager'?'Manager controls':stakeholder==='investor'?'Investor requests':'SME quotation';
-  const [selectedTab,setTab]=useState(initialTab);
-  const tab=stakeholder?initialTab:selectedTab;
-  const [face,setFace]=useState('5000'); const [days,setDays]=useState('30');
-  const [capital,setCapital]=useState('10000000'); const [liquidity,setLiquidity]=useState('10000000');
-  const [evidence,setEvidence]=useState(false); const [investment,setInvestment]=useState('10000');
-  const [configuration]=useState(()=>{
-    try{return {address:resolveV2Address(import.meta.env.VITE_V2_CONTRACT_ADDRESS),error:''};}
-    catch(cause){return {address:'',error:(cause as Error).message};}
+function V2Preview({ stakeholder, connectedWallet, walletEpoch = 0, networkOk = true, readProvider = null }: WorkspaceProps) {
+  const initialTab = stakeholder === 'manager' ? 'Manager controls' : stakeholder === 'investor' ? 'Investor requests' : 'SME quotation';
+  const [selectedTab, setTab] = useState(initialTab);
+  const tab = stakeholder ? initialTab : selectedTab;
+  const [face, setFace] = useState('5000'), [days, setDays] = useState('30');
+  const [capital, setCapital] = useState('10000000'), [liquidity, setLiquidity] = useState('10000000');
+  const [evidence, setEvidence] = useState(false), [investment, setInvestment] = useState('10000');
+  const [configuration] = useState(() => {
+    try { return { address: resolveV2Address(import.meta.env.VITE_V2_CONTRACT_ADDRESS), error: '' }; }
+    catch (cause) { return { address: '', error: (cause as Error).message }; }
   });
-  const [address,setAddress]=useState(configuration.address);const [inspectedWallet,setWallet]=useState('');
-  const wallet=connectedWallet??inspectedWallet;
-  const {report:visible,loading:reading,error:readError,read} = usePublicReport(address,wallet,walletEpoch,networkOk);
-  const [exposures,setExposures]=useState({sme:'0',payer:'0',commitments:'0',payerCommitments:'0',automatic:'0'});
-  let quote:ReturnType<typeof v2Quote>|null=null;let eligibility:ReturnType<typeof v2Eligibility>|null=null;let error='';let subscription:ReturnType<typeof subscriptionPreview>|null=null;
+  const [address, setAddress] = useState(configuration.address), [inspectedWallet, setWallet] = useState('');
+  const wallet = connectedWallet ?? inspectedWallet;
+  const { report: visible, loading: reading, error: readError, read } = usePublicReport(address, wallet, walletEpoch, networkOk, readProvider);
+  const [exposures, setExposures] = useState({ sme: '0', payer: '0', commitments: '0', payerCommitments: '0', automatic: '0' });
+  let quote: ReturnType<typeof v2Quote> | null = null, eligibility: ReturnType<typeof v2Eligibility> | null = null;
+  let error = '', subscription: ReturnType<typeof subscriptionPreview> | null = null;
   try {
-    if(tab==='SME quotation') {
-    quote=v2Quote(moneyInput(face),Number(days));
-    eligibility=v2Eligibility(moneyInput(face),{navCents:moneyInput(capital),freeLiquidityCents:moneyInput(liquidity),smeOutstandingCents:moneyInput(exposures.sme),payerOutstandingCents:moneyInput(exposures.payer),smeCommitmentsCents:moneyInput(exposures.commitments),payerCommitmentsCents:moneyInput(exposures.payerCommitments),automaticExposureCents:moneyInput(exposures.automatic),verifiedSme:evidence,documentVerified:evidence,creditCleared:evidence,lowRisk:evidence,remainingDays:Number(days)});
+    if (tab === 'SME quotation') {
+      quote = v2Quote(moneyInput(face), Number(days));
+      eligibility = v2Eligibility(moneyInput(face), {
+        navCents: moneyInput(capital), freeLiquidityCents: moneyInput(liquidity), smeOutstandingCents: moneyInput(exposures.sme),
+        payerOutstandingCents: moneyInput(exposures.payer), smeCommitmentsCents: moneyInput(exposures.commitments),
+        payerCommitmentsCents: moneyInput(exposures.payerCommitments), automaticExposureCents: moneyInput(exposures.automatic),
+        verifiedSme: evidence, documentVerified: evidence, creditCleared: evidence, lowRisk: evidence, remainingDays: Number(days),
+      });
     }
-    if(tab==='Investor requests') subscription=subscriptionPreview(moneyInput(investment),moneyInput(capital),moneyInput(capital),evidence,false);
-  } catch(cause){error=userFacingError(cause);}
-  const due=new Intl.DateTimeFormat('en-SG',{timeZone:'Asia/Singapore',dateStyle:'medium'}).format(new Date(Date.now()+Math.max(0,Math.min(36500,Number(days)||0))*86400000));
-  return <section className="v2-shell" aria-label="Financing and fund requests"><header><h2>{stakeholder==='manager'?'Fund operations and risk':stakeholder==='investor'?'Investment and redemption':'Financing quotation'}</h2><p>Simulated SGD accounting. Existing V1 records and RLU remain separate from separate V2 records and RLU2.</p></header>
-    <div className="notice info"><b>V2 is deployed on Sepolia. Financial execution remains disabled.</b> Quotations are estimates. Private V2 registration, permissions and signed execution workflows still require integration and verification. V1 records remain available in the other navigation pages.</div>
-    {!stakeholder&&<nav aria-label="V2 preview sections">{['SME quotation','Investor requests','Manager controls'].map(name=><button className={`btn ${tab===name?'':'o'}`} aria-pressed={tab===name} onClick={()=>setTab(name)} key={name}>{name}</button>)}</nav>}
-    <section className="section-block"><h2>Policy scenario inputs</h2><div className="form-row"><label>Scenario fund NAV (S$)<input value={capital} onChange={e=>setCapital(e.target.value)} /></label><label>Scenario unreserved liquidity (S$)<input value={liquidity} onChange={e=>setLiquidity(e.target.value)} /></label><label className="consent-row"><input type="checkbox" checked={evidence} onChange={e=>setEvidence(e.target.checked)} />Assume independent verification and low risk for this scenario only</label></div><p>All values here are scenario inputs, not live balances or verified evidence. Liquidity means cash after approved commitments and redemption allocations. Real execution must recheck current permissions, valuation, exposures and receipts.</p>
-      {tab==='SME quotation'&&<details className="model-controls"><summary>Scenario outstanding financing and commitments</summary><div className="model-inputs">{([['sme','SME outstanding principal (S$)'],['commitments','SME approved gross commitments (S$)'],['payer','Payer outstanding principal (S$)'],['payerCommitments','Payer approved gross commitments (S$)'],['automatic','Automatic facility already used, including commitments (S$)']] as const).map(([key,label])=><label key={key}>{label}<input inputMode="decimal" value={exposures[key]} onChange={e=>setExposures(previous=>({...previous,[key]:e.target.value}))}/></label>)}</div></details>}</section>
-    {tab==='SME quotation'&&<section className="section-block"><h2>SME financing quotation</h2><div className="form-row"><label>Invoice face value (S$)<input value={face} onChange={e=>setFace(e.target.value)} /></label><label>Estimated financing days<input type="number" min="1" max="90" value={days} onChange={e=>setDays(e.target.value)} /></label></div>
-      {quote&&<><dl className="detail-list">{[['Invoice face value',money(quote.faceCents)],['Advance percentage',`${quote.advanceBps/100n}%`],['Gross advance',money(quote.grossAdvanceCents)],['Processing fee (withheld upfront)',money(quote.processingFeeCents)],['Cash available upfront (simulated)',money(quote.upfrontCents)],['Annual simple interest','8% on unpaid gross principal, actual seconds / 365 days'],['Estimated financing days',days],['Estimated interest',money(quote.estimatedInterestCents)],['Estimated amount payable before payer offset',money(quote.estimatedObligationCents)],['Reserve / holdback (not a fee)',money(quote.holdbackCents)],['Illustrative repayment due date (SGT)',due],['Estimated unused reserve release after full payer collection',money(quote.estimatedReserveReleaseCents)],['Estimated SME top-up after full payer collection',money(quote.estimatedTopUpCents)]] .map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      <p className="notice info">Processing is charged once. Payer collections offset the same debt; principal is not charged twice. Early repayment penalty: S$0. Optional additional overdue pricing is disabled by default and requires explicit terms; no overdue charge is included here.</p></>}
-      {eligibility&&<div className="notice warning"><b>{eligibility.decision}</b><ul>{[...eligibility.blocked,...eligibility.review].map(reason=><li key={reason}>{reason}</li>)}</ul><p>Automatic financing also requires no more than 30 days, S$50,000 automatic exposure and combined SME exposure within 1% of NAV. Manual financing has a S$100,000 hard cap and 90-day maturity. Eligibility is not approval, financing or payment. Approved and Auto-approved are separate V2 states; neither moves funds until financing is executed.</p></div>}
-      <button className="btn" disabled title="Verified V2 permissions and authenticated wallet integration required">Submit / Accept V2 Financing Terms</button>
-    </section>}
-    {tab==='Investor requests'&&<section className="section-block"><h2>Investor subscriptions and redemptions</h2><p>Actual V2 holdings, request history and NAV per unit require a successful public read of the deployed contract. One RLU2 starts at S$1 only at initial issuance. Later subscriptions and redemptions use NAV including earned unpaid interest and active units, with conservative rounding and valuation checks.</p><label>Proposed additional investment (S$)<input value={investment} onChange={e=>setInvestment(e.target.value)} /></label><InvestmentPolicy amount={investment}/><RedemptionDraft report={visible}/>{subscription&&<p className="notice info">{subscription.decision}. Automatic subscriptions have a S$10,000 lifetime limit per verified identity across wallets; redemptions do not reset it. A signature does not confirm funds. Only a manager-confirmed simulated funding receipt can enter execution.</p>}
-      <div className="v2-actions">{['Request Additional Investment','Request Withdrawal / Redeem RLU','Transfer RLU','View Requests and Status'].map(name=><button className="btn o" key={name} disabled title="V2 financial execution is not activated">{name}</button>)}</div><p>Requests without cash remain Pending Liquidity after manager review. Fully allocated redemptions reserve cash and units, then burn on simulated settlement. No SGD payment is made.</p></section>}
-    {tab==='Manager controls'&&<section className="section-block"><h2>Manager dashboard and risk controls</h2><p>Live V2 fund size, liquidity, SME/payer exposures, financed principal, pending approvals/subscriptions/redemptions, reserved redemption cash, overdue loans and realised income require V2 data. No demonstration history is substituted.</p><p>V2 supports Approve, Reject with reason, Finance, Record Collection/Repayment, subscription review and redemption review/allocation/settlement. Authority is enforced in Solidity. Automation is disabled initially; executors cannot confirm funding, approve large requests or change risk limits.</p>
-      <ManagerDraft/><div className="v2-actions">{['Approve investment request','Reject investment request','Confirm simulated funding','Process investment','Approve redemption','Allocate redemption liquidity','Settle redemption','Approve invoice','Reject invoice with reason','Finance invoice','Record payer collection / SME repayment'].map(name=><button className="btn o" key={name} disabled title="Reviewed wallet/backend integration required; deployed contract does not activate execution">{name}</button>)}</div>
-      <p>Review Investor and SME applications in Applications. V1 approval does not register an identity in V2.</p>
-    </section>}
-    {(tab==='Manager controls'||tab==='Investor requests'||tab==='SME quotation')&&<section className="section-block">
-      <h3>Read the deployed V2 contract (public reads only)</h3><div className="form-row"><label>Independent V2 contract address<input value={address} readOnly={stakeholder!==undefined} onChange={e=>{if(!stakeholder)setAddress(e.target.value);}} /></label><label>Public wallet address to inspect<input value={wallet} readOnly={connectedWallet!==undefined} onChange={e=>setWallet(e.target.value)} /></label><button className="btn o" disabled={reading||!address||!wallet||!networkOk||Boolean(configuration.error)} onClick={()=>void read()}>{reading?'Reading Sepolia...':'Read V2 fund'}</button></div>
-      <p className="support-copy">Verified Sepolia deployment: <a href={`https://sepolia.etherscan.io/address/${V2_DEPLOYMENT.address}`} target="_blank" rel="noreferrer">{V2_DEPLOYMENT.address}</a>. Contract deployment does not activate private onboarding, automation workers or financial execution.</p>{configuration.error&&<p role="alert">{configuration.error}</p>}{readError&&<p role="alert">{readError}</p>}{visible&&<><p>Sepolia block {visible.blockTag}. Public wallet {visible.wallet}. Raw RLU2 units: {visible.units.toString()} (2 decimals).</p><dl className="detail-list">{Object.entries(visible.fund).map(([name,value])=><div key={name}><dt>{name}</dt><dd>{typeof value==='bigint'&&name.endsWith('Cents')?money(value):String(value)}</dd></div>)}</dl></>}
-    </section>}
-    {visible&&<RequestHistory report={visible} stakeholder={stakeholder??(tab==='Manager controls'?'manager':tab==='Investor requests'?'investor':'sme')}/>}{visible&&tab==='Manager controls'&&<ManagerReport report={visible}/>}
-    {visible&&tab==='Investor requests'&&<InvestorAssets report={visible}/>}
-    {error&&<p className="notice error" role="alert">{error}</p>}
-    {stakeholder==='sme'&&<section className="section-block"><h3>Invoice documents, repayments and history</h3><p>Use Private Documents for authenticated supporting PDFs and My Invoices for existing V1 records. V2 document binding, invoice submission and repayment entry await backend and wallet integration. Do not submit a V1 invoice expecting V2 financing.</p><p>Read the deployed V2 contract above for current public invoice and repayment records. Repayment will distinguish remaining principal, accrued unpaid interest, previous repayments and payer offsets.</p><button className="btn o" disabled>Repay V2 financing</button></section>}
-    {stakeholder==='investor'&&<section className="section-block"><h3>V2 request and transaction history</h3><p>V2 requests and receipts require a successful read of the independently deployed contract. Existing V1 receipts remain in Transaction History and are not V2 subscriptions or redemptions.</p></section>}
+    if (tab === 'Investor requests') subscription = subscriptionPreview(moneyInput(investment), moneyInput(capital), moneyInput(capital), evidence, false);
+  } catch (cause) { error = userFacingError(cause); }
+  const due = new Intl.DateTimeFormat('en-SG', { timeZone: 'Asia/Singapore', dateStyle: 'medium' }).format(new Date(Date.now() + Math.max(0, Math.min(36500, Number(days) || 0)) * 86400000));
+  const scenarioInputs = <details className="model-controls"><summary>Fund assumptions</summary>
+    <p className="support-copy">Adjust these assumptions to explore eligibility. They are separate from live fund balances.</p>
+    <div className="form-row"><label>Scenario fund NAV (S$)<input inputMode="decimal" value={capital} onChange={e => setCapital(e.target.value)} /></label><label>Scenario unreserved liquidity (S$)<input inputMode="decimal" value={liquidity} onChange={e => setLiquidity(e.target.value)} /></label></div>
+    <label className="consent-row"><input type="checkbox" checked={evidence} onChange={e => setEvidence(e.target.checked)} />Assume independent verification and low risk for this scenario only</label>
+    {tab === 'SME quotation' && <div className="model-inputs">{([
+      ['sme', 'SME outstanding principal (S$)'], ['commitments', 'SME approved gross commitments (S$)'],
+      ['payer', 'Payer outstanding principal (S$)'], ['payerCommitments', 'Payer approved gross commitments (S$)'],
+      ['automatic', 'Automatic facility already used, including commitments (S$)'],
+    ] as const).map(([key, label]) => <label key={key}>{label}<input inputMode="decimal" value={exposures[key]} onChange={e => setExposures(previous => ({ ...previous, [key]: e.target.value }))} /></label>)}</div>}
+  </details>;
+  return <section className="v2-shell" aria-label="Financing and fund requests">
+    <header><h2>{tab === 'Manager controls' ? 'Fund records' : tab === 'Investor requests' ? 'Investment overview' : 'Financing overview'}</h2><p className="support-copy">Requests are not available from this workspace yet. View current records or explore an estimate below.</p></header>
+    {!stakeholder && <nav aria-label="Fund workspace sections">{['SME quotation', 'Investor requests', 'Manager controls'].map(name => <button className={`btn ${tab === name ? '' : 'o'}`} aria-pressed={tab === name} onClick={() => setTab(name)} key={name}>{name}</button>)}</nav>}
+    <section className="section-block">
+      <div className="section-heading"><h3>Fund records</h3><button className="btn o" disabled={reading || !address || !wallet || !networkOk || Boolean(configuration.error)} onClick={() => void read()}>{reading ? 'Refreshing…' : 'Refresh fund records'}</button></div>
+      {!visible && <p className="support-copy">Load the fund to see holdings, requests and repayments for this wallet.</p>}
+      {visible && <p className="support-copy">Records updated at Sepolia block {visible.blockTag}.</p>}
+      {configuration.error && <p role="alert">{configuration.error}</p>}{readError && <p role="alert">{readError}</p>}
+      <details className="calculation-notes"><summary>Data source</summary><div className="form-row">
+        <label>Fund contract address<input value={address} readOnly={stakeholder !== undefined} onChange={e => { if (!stakeholder) setAddress(e.target.value); }} /></label>
+        <label>Public wallet address to inspect<input value={wallet} readOnly={connectedWallet !== undefined} onChange={e => setWallet(e.target.value)} /></label>
+      </div><p>RLU2 records are separate from RLU holdings. <a href={`https://sepolia.etherscan.io/address/${V2_DEPLOYMENT.address}`} target="_blank" rel="noreferrer">View fund contract</a></p></details>
+    </section>
+    {visible && tab === 'Investor requests' && <InvestorAssets report={visible} />}
+    {visible && <RequestHistory report={visible} stakeholder={stakeholder ?? (tab === 'Manager controls' ? 'manager' : tab === 'Investor requests' ? 'investor' : 'sme')} />}
+    {visible && tab === 'Manager controls' && <ManagerReport report={visible} />}
+    {tab === 'SME quotation' && <details className="section-block operations-scenario"><summary>Financing calculator</summary>
+      <p className="support-copy">Estimate your advance and repayment terms before requesting financing.</p>
+      <div className="form-row"><label>Invoice face value (S$)<input inputMode="decimal" value={face} onChange={e => setFace(e.target.value)} /></label><label>Estimated financing days<input type="number" min="1" max="90" value={days} onChange={e => setDays(e.target.value)} /></label></div>
+      {quote && <><div className="metric-grid"><div className="metric emphasis"><span>Estimated cash upfront</span><strong>{money(quote.upfrontCents)}</strong></div><div className="metric"><span>Estimated interest</span><strong>{money(quote.estimatedInterestCents)}</strong></div><div className="metric"><span>Estimated amount payable before payer offset</span><strong>{money(quote.estimatedObligationCents)}</strong></div></div>
+        <details className="model-controls"><summary>Advance and repayment breakdown</summary><dl className="detail-list">{[
+          ['Invoice face value', money(quote.faceCents)], ['Advance percentage', `${quote.advanceBps / 100n}%`], ['Gross advance', money(quote.grossAdvanceCents)],
+          ['Processing fee (withheld upfront)', money(quote.processingFeeCents)], ['Annual simple interest', '8% on unpaid gross principal'],
+          ['Reserve / holdback (not a fee)', money(quote.holdbackCents)], ['Estimated repayment date (SGT)', due],
+          ['Estimated reserve release after full payer collection', money(quote.estimatedReserveReleaseCents)], ['Estimated SME top-up after full payer collection', money(quote.estimatedTopUpCents)],
+        ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><p className="footnote">The processing fee is charged once. Payer collections reduce the same debt. Interest accrues for the actual time principal is unpaid. Early repayment penalty: S$0.</p></details></>}
+      {scenarioInputs}
+      {eligibility && <div className="notice info"><b>{eligibility.decision}</b>{[...eligibility.blocked, ...eligibility.review].length > 0 && <ul>{[...eligibility.blocked, ...eligibility.review].map(reason => <li key={reason}>{reason}</li>)}</ul>}<p className="footnote">This assessment uses your assumptions. Approval requires verified documents and current fund checks.</p></div>}
+      {error && <p className="notice error" role="alert">{error}</p>}<button className="btn" disabled title="Financing requests are not available yet">Submit financing request</button>
+    </details>}
+    {tab === 'Investor requests' && <>
+      <details className="section-block operations-scenario"><summary>Investment calculator</summary><p className="support-copy">Explore the investment allowance and review requirements for RLU2.</p>
+        <label>Proposed additional investment (S$)<input inputMode="decimal" value={investment} onChange={e => setInvestment(e.target.value)} /></label>
+        <InvestmentPolicy amount={investment} />{scenarioInputs}{subscription && <p className="notice info">{subscription.decision}. Funding must be confirmed before units are issued.</p>}
+        {error && <p className="notice error" role="alert">{error}</p>}
+      </details>
+      <RedemptionDraft report={visible} />
+    </>}
+    {tab === 'Manager controls' && <ManagerDraft />}
   </section>;
 }

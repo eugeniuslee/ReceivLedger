@@ -1,5 +1,31 @@
 # ReceivLedger
 
+## RLU purchase requests and local testing
+
+Investors can use **Buy RLU** to choose a whole-token quantity. Required payment is calculated at **S$1.00 per RLU** in the form, registry, and database; the investor cannot choose an independent payment amount. This fixed subscription rule matches existing RLU capital accounting. Investors then attach a private payment-proof PDF (up to 5 MB) and submit for review. These contributions fund the pool; SME invoice financing is the separate flow for requesting an advance from the pool.
+
+**Purchase Requests** lets the fund manager review the evidence and approve or reject the request with a note. Approval does not issue tokens: use the existing **Investors** screen to issue the exact RLU quantity, then record that transaction hash on the approved purchase. Receipt verification requires the configured Sepolia contract, matching investor/quantity, current manager, two confirmations, and issuance after submission. Retry the same receipt if confirmation or finalization fails; do not issue again. A receipt can complete only one request.
+
+Use Node.js 22.12+ or 24 LTS and run:
+
+```bash
+npm ci
+npm run dev         # http://localhost:5173/
+npm test            # offline UI, handler, SQL/RLS and receipt tests
+npm run build       # TypeScript and production bundle
+npm run test:solidity # local EVM accounting/transfer/redemption tests
+```
+
+The automated tests need no wallet, Supabase credentials, or hosted changes. Browser purchase submission additionally requires `.env.local` with the browser-safe values from `.env.example`, a configured registry backend, and an approved investor or manager wallet on Sepolia. Local sign-in uses `http://localhost:5173/` in Supabase Auth redirect URLs and `http://localhost:5173` in the registry `ALLOWED_ORIGINS`; production preview uses port 4173. Do not replace the production Site URL for local testing.
+
+Before hosting this feature, apply outstanding migrations in order: `202611090001_purchase_requests.sql` creates purchase tables and the private proof bucket; `202611090002_purchase_pricing.sql` enforces fixed pricing. If the first purchase migration has already been applied, apply only the second one—do not edit or replay the first. Then deploy the matching `registry` Edge Function, including all shared modules, and build/deploy the frontend. No new frontend environment variable or smart-contract deployment is needed. The website checks pricing readiness before accepting purchases; history remains readable while the backend needs updating. Local tests do not apply hosted migrations or deploy functions. A migration executed through SQL Editor must also be reconciled with CLI migration history before a later `db push`.
+
+Existing purchase amounts, payment proofs, and issued receipts are preserved as `legacy_reported`. Old requests that already match S$1 per RLU may continue. A mismatched unfulfilled request cannot receive another proof, be submitted, approved, or fulfilled; the manager can reject it with a note, including an old draft or approval. For an earlier approval, first check transaction history and preserve any existing issuance receipt: tokens may already have been issued before their receipt was recorded. A new correctly priced request can be created only after the external payment and any prior issuance have been reconciled. Rejecting a request does not refund money or undo already issued tokens. Historical completed requests keep their original totals and receipts.
+
+This workflow uses existing whole-unit **RLU**. The RLU contract supports transfers and manager-recorded repayments but does not implement redemption or financing fees. The separate **RLU2** contract's repayment/fee, transfer and redemption behavior is tested locally; its website execution remains disabled. SME identity integration is unchanged. The fixed subscription rate is not a redemption guarantee or NAV quote. Required payment and uploaded proof do not prove bank settlement; the manager must check payment records before approval. Actual bank transfers are outside the application.
+
+Home and invoice review now prioritize balances, next actions and essential details. Optional calculations, risk detail and technical source information are expandable.
+
 Start with the current [developer handover](HANDOVER.md) and [testing checklist](TESTING_CHECKLIST.md) for integration, final verification, inactive features and release blockers. Earlier [contract review](docs/V2_DEPLOYMENT_READINESS.md) is historical evidence; [deployment tooling preflight](docs/V2_DEPLOYMENT_TOOLING_PREFLIGHT.md) supersedes its older gas guidance.
 
 React 18, TypeScript, Vite 5 and ethers v6 frontend for the deployed ReceivLedger contract. V1 dashboard and workflow data is read from Sepolia; its live views do not use a fictional in-browser ledger.

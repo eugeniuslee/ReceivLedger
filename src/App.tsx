@@ -5,6 +5,7 @@ import { NAVIGATION_KEY, REMEMBER_PAGE_KEY, readNavigation, resolveWalletNavigat
 import { Dashboard } from './pages/Dashboard';
 import { History } from './pages/History';
 import { Investors } from './pages/Investors';
+import { Purchases } from './pages/Purchases';
 import { Invoices } from './pages/Invoices';
 import { About, Help, MyProfile, Settings } from './pages/Account';
 import { ProfileMenu } from './components/ProfileMenu';
@@ -32,15 +33,15 @@ export function LedgerApp() {
   const [rememberPage, setRememberPage] = useState(initialRememberPage);
   const [selection, setSelection] = useState<{ wallet: string; kind: 'investor' | 'sme' } | null>(null);
   const [submittedWallet, setSubmittedWallet] = useState<string | null>(null);
-  const { account, role, networkOk, walletAvailable, walletChecking, eventIndexComplete, connect, loading, transactionPending, error, eventsError, connectionNotice, walletEpoch = 0 } = useLedger();
+  const { account, role, isV2Manager = false, networkOk, walletAvailable, walletChecking, eventIndexComplete, connect, loading, transactionPending, error, eventsError, connectionNotice, walletEpoch = 0 } = useLedger();
   const { registeredName, application, requiresRegistrationSession, authenticated } = useRegistry();
   const registrationKind = selection?.wallet === account?.toLowerCase() ? selection?.kind : undefined;
   // An application selects an interface, never a chain permission or role.
   const viewRole = role === 'provisional' && application ? application.kind === 'investor' ? 'investor' : 'sme' : role;
-  const navigation = navigationForRole(viewRole);
-  const resolved = resolveWalletNavigation(navigationState, account, viewRole);
+  const navigation = navigationForRole(viewRole, isV2Manager);
+  const resolved = resolveWalletNavigation(navigationState, account, viewRole, isV2Manager);
   const page = resolved.page;
-  const pageAllowed = canAccessPage(viewRole, page);
+  const pageAllowed = canAccessPage(viewRole, page, isV2Manager);
   const activeTitle = [...navigation, ...SUPPORT_PAGES, { id: 'profile', title: 'My Profile' }, { id: 'registration', title: 'Your Application' }, { id: 'documents', title: 'Private Documents' }].find(item => item.id === page)?.title ?? 'Home';
 
   useEffect(() => {
@@ -49,18 +50,18 @@ export function LedgerApp() {
 
   useEffect(() => {
     setNavigationState(previous => {
-      const next = resolveWalletNavigation(previous, account, viewRole);
+      const next = resolveWalletNavigation(previous, account, viewRole, isV2Manager);
       return previous.account === next.account && previous.page === next.page ? previous : next;
     });
-  }, [account, viewRole]);
+  }, [account, viewRole, isV2Manager]);
 
   useEffect(() => {
-    if (!account || !role) return;
+    if (!account || (!role && !isV2Manager)) return;
     try {
       if (rememberPage) window.sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify(resolved));
       else window.sessionStorage.removeItem(NAVIGATION_KEY);
     } catch { /* Navigation storage is optional. */ }
-  }, [account, role, page, rememberPage]);
+  }, [account, role, isV2Manager, page, rememberPage]);
 
   function navigate(next: PageId) { setNavigationState({ account, page: next }); }
   function updateRememberPage(value: boolean) {
@@ -88,11 +89,11 @@ export function LedgerApp() {
     else if (page === 'help') content = <Help />;
     else if (page === 'about') content = <About />;
     else if (page === 'registration') content = registrationKind || application ? <Registration initialKind={application?.kind ?? registrationKind} onSubmitted={() => { setSubmittedWallet(account.toLowerCase()); navigate('dashboard'); }} /> : choice;
-    else if (role) {
+    else if (role || isV2Manager) {
       if (page === 'profile') content = <MyProfile onApplication={() => navigate('registration')} />;
-      else if (page === 'dashboard') content = (role !== 'manager' && application && application.status !== 'approved') || role === 'provisional'
+      else if (page === 'dashboard') content = !isV2Manager && ((role !== 'manager' && application && application.status !== 'approved') || role === 'provisional')
         ? existingApplication
-        : <><RegistrationSummary onNavigate={navigate} /><Dashboard /></>;
+        : <><RegistrationSummary onNavigate={navigate} /><Dashboard onNavigate={navigate} /></>;
       else if (page === 'applications') content = <Applications />;
       else if (page === 'documents') content = <Documents />;
       else if (page === 'fund') content = <UnifiedWorkspace />;
@@ -101,11 +102,12 @@ export function LedgerApp() {
       else if (page === 'submitInvoice') content = <Invoices mode="submit" />;
       else if (page === 'assets' || page === 'transfer') content = <Assets />;
       else if (page === 'investors') content = <Investors />;
+      else if (page === 'purchases') content = <Purchases onInvestors={() => navigate('investors')} />;
       else if (page === 'history') content = <History />;
     }
   }
   const blockchainPage = ['dashboard', 'assets', 'submitInvoice', 'invoices', 'investors', 'transfer', 'history', 'profile', 'reports'].includes(page);
-  const identity = walletIdentity(role);
+  const identity = walletIdentity(role, isV2Manager);
 
   return <div className="app">
     <aside className="side">
@@ -114,19 +116,17 @@ export function LedgerApp() {
         <span aria-hidden="true">{item.icon}</span>{item.title}
       </button>)}</nav>
       <div className="side-footer"><nav className="support-navigation" aria-label="Support navigation">{SUPPORT_PAGES.map(item => <button key={item.id} className={`nav${page === item.id ? ' on' : ''}`} aria-current={page === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><span aria-hidden="true">{item.icon}</span>{item.title}</button>)}</nav>
-      <div className="side-note">Ethereum Sepolia · University prototype</div>
+      <div className="side-note">Ethereum Sepolia</div>
       </div>
     </aside>
     <main className="main">
       <header className="top">
-        <div><span className="section-kicker">Your fund workspace</span><h1>{activeTitle}</h1><span className="sub">{account ? role ? `${registeredName ? `${registeredName} · ` : ''}${application && role === 'provisional' ? `${application.kind === 'sme' ? 'SME' : 'Investor'} application · ${application.status}` : identity.name}` : 'Resolving wallet access…' : 'Connect your wallet to get started'}</span></div>
+        <div><h1>{activeTitle}</h1><span className="sub">{account ? role || isV2Manager ? `${registeredName ? `${registeredName} · ` : ''}${application && role === 'provisional' && !isV2Manager ? `${application.kind === 'sme' ? 'SME' : 'Investor'} application · ${application.status}` : identity.name}` : 'Resolving wallet access…' : 'Connect your wallet to get started'}</span></div>
         <div className="wallet-controls">
           <span className={`network-pill ${networkOk ? 'connected' : 'disconnected'}`}>{walletChecking ? 'Checking wallet…' : !walletAvailable ? 'Wallet unavailable' : !account ? 'Not connected' : networkOk ? 'Sepolia' : 'Wrong network'}</span>
           {account ? <ProfileMenu key={account.toLowerCase()} onNavigate={navigate} /> : <button className="btn" onClick={() => void connect()} disabled={!walletAvailable || walletChecking || transactionPending}>{walletChecking ? 'Checking wallet…' : 'Connect MetaMask'}</button>}
         </div>
       </header>
-      <p className="prototype-disclosure">University prototype on Sepolia. RLU has no real monetary value; SGD accounting is simulated, with no real payments or redemption. Blockchain records are public.</p>
-      {['assets','invoices','submitInvoice','reports','history'].includes(page)&&<p className="support-copy">V1 records · RLU (0 decimals). V2 fund operations use separate records and RLU2 (2 decimals).</p>}
       {submittedWallet === account.toLowerCase() && <p className="notice info" role="status">Application submitted for review. No on-chain approval was granted.<button className="text-button" onClick={() => setSubmittedWallet(null)}>Dismiss</button></p>}
       {!walletAvailable && <div className="notice info">Enable MetaMask in your browser to connect. Help & Support is available without a wallet.</div>}
       {account && walletAvailable && !networkOk && <div className="notice warning">Select Sepolia in MetaMask (chain ID 11155111) to load your blockchain records.</div>}

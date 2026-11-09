@@ -39,13 +39,13 @@ describe('financial contexts and screens with Supabase explicitly disabled', () 
     render(<Harness />);
     expect(screen.getByText('Supabase disabled')).toBeTruthy();
     await waitFor(() => expect(within(metric('Outstanding principal')).getByText('S$100.00')).toBeTruthy());
-    expect(within(metric('Illustrative fund NAV')).getByText('S$1,000.00')).toBeTruthy();
+    expect(within(metric('Estimated fund NAV')).getByText('S$1,000.00')).toBeTruthy();
     expect(screen.getByText('S$0.99')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh report' }));
     await waitFor(() => expect(screen.getByText(/Sepolia block 124/)).toBeTruthy());
     expect(within(metric('Outstanding principal')).getByText('S$0.00')).toBeTruthy();
     expect(within(metric('Available financing capacity')).getByText('S$1,000.00')).toBeTruthy();
-    expect(within(metric('Illustrative fund NAV')).getByText('S$1,000.00')).toBeTruthy();
+    expect(within(metric('Estimated fund NAV')).getByText('S$1,000.00')).toBeTruthy();
     expect(screen.getByText(/No outstanding financed invoices/)).toBeTruthy();
     expect(wallet.runTransaction).not.toHaveBeenCalled();
   });
@@ -53,6 +53,7 @@ describe('financial contexts and screens with Supabase explicitly disabled', () 
     wallet = { ...wallet, role: 'inactiveInvestor', snapshot: { role: 'inactiveInvestor', manager: other, approved: false, connectedBalance: 250n } };
     read.mockResolvedValueOnce(testSnapshot());
     const view = render(<Harness />);
+    fireEvent.click(screen.getByText('Investment details and scenarios'));
     await screen.findByText('25.00%');
     fireEvent.change(screen.getByLabelText('Assumed additional fund income (S$)'), { target: { value: '100' } });
     expect(screen.getByText('S$275.00')).toBeTruthy();
@@ -61,7 +62,8 @@ describe('financial contexts and screens with Supabase explicitly disabled', () 
     read.mockResolvedValueOnce(testSnapshot({ connectedBalance: 0n, invoices: [row, testInvoice({ id: 2n, payer: 'Unrelated wallet payer' })] }));
     view.rerender(<Harness />);
     expect(screen.queryByText('S$275.00')).toBeNull();
-    expect(screen.queryByRole('heading', { name: 'Your investment illustration' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Investment value scenarios' })).toBeNull();
+    fireEvent.click(screen.getByText('Financing estimates and capacity'));
     await screen.findByRole('option', { name: '#1 · Example payer' });
     expect(screen.queryByRole('option', { name: /Unrelated wallet payer/ })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Fund financial reporting' })).toBeNull();

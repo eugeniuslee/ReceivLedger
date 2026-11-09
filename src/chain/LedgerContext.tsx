@@ -469,14 +469,16 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
 
   const value: LedgerContextValue = {
     account,
-    role: v2Authority.isManager ? 'manager' : role,
+    // RLU permissions follow its own contract. RLU2 ownership is a separate
+    // reporting capability and must not replace this wallet's RLU role.
+    role,
     legacyRole: role,
     isV2Manager: v2Authority.isManager,
     v2Owner: v2Authority.owner,
     managerRecognitionError: v2Authority.error,
-    isManager: v2Authority.isManager || role === 'manager',
-    isInvestor: !v2Authority.isManager && role === 'investor',
-    isSme: !v2Authority.isManager && role === 'sme',
+    isManager: role === 'manager',
+    isInvestor: role === 'investor',
+    isSme: role === 'sme',
     networkOk,
     walletAvailable: Boolean(injected),
     walletChecking,

@@ -14,7 +14,7 @@ export function ApplicationDetails({ application: a, hideNote = false }: { appli
       ['Registered business address', a.details?.business_address], ["Contact person's name", a.details?.contact_name]] : [['Country of residence', a.details?.country]]),
     ['Submitted', applicationDate(a.submitted_at ?? a.created_at)], ['Reviewed', applicationDate(a.reviewed_at)],
   ];
-  return <dl className="detail-list">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || 'Not supplied (legacy record)'}</dd></div>)}
+  return <dl className="detail-list">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || 'Not provided'}</dd></div>)}
     {!hideNote && a.review_note && <div><dt>Manager note</dt><dd>{a.review_note}</dd></div>}
     {a.approval_tx_hash && <div><dt>Verified approval transaction</dt><dd className="mono">{a.approval_tx_hash}</dd></div>}
   </dl>;

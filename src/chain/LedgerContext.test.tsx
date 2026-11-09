@@ -239,10 +239,11 @@ describe('network changes without a browser reload',()=>{
 });
 
 describe('V2 recognition versus legacy transaction authority',()=>{
-  it('recognises the V2 owner before private authentication without granting V1 write rights',async()=>{
+  it('recognises the V2 owner separately without changing the RLU role or granting manager writes',async()=>{
     calls.authority.mockImplementation((account:string|null)=>({isManager:account===walletA,owner:walletA,error:null,loading:false}));
     await mountWallet();
-    expect(current.role).toBe('manager');expect(current.isV2Manager).toBe(true);
+    expect(current.role).toBe('provisional');expect(current.isV2Manager).toBe(true);
+    expect(current.isManager).toBe(false);
     expect(current.legacyRole).toBe('provisional');
     const operation=vi.fn();
     await expect(current.runTransaction('manager',operation)).rejects.toThrow('requires the manager wallet role');
@@ -250,5 +251,27 @@ describe('V2 recognition versus legacy transaction authority',()=>{
     await act(async()=>{accounts=[walletB];listeners.accountsChanged(accounts);});
     await waitFor(()=>expect(current.account).toBe(walletB));
     expect(current.isV2Manager).toBe(false);expect(current.role).not.toBe('manager');
+  });
+  it('preserves approved RLU investor access when the wallet also owns RLU2', async () => {
+    calls.authority.mockImplementation((account: string | null) => ({ isManager: account === walletA, owner: walletA, error: null, loading: false }));
+    calls.read.mockResolvedValue(snapshot('investor'));
+    calls.classify.mockResolvedValue({ role: 'investor', manager, approved: true, balance: 20n });
+    await mountWallet();
+    expect(current.role).toBe('investor');
+    expect(current.isInvestor).toBe(true);
+    expect(current.isManager).toBe(false);
+    expect(current.isV2Manager).toBe(true);
+    const operation = vi.fn().mockResolvedValue('confirmed');
+    await act(async () => { await expect(current.runTransaction('investor', operation)).resolves.toBe('confirmed'); });
+    expect(operation).toHaveBeenCalledOnce();
+  });
+  it('recognises an RLU manager independently of RLU2 ownership', async () => {
+    calls.read.mockResolvedValue({ role: 'manager', manager: walletA, totalFundSize: 0n, availableFunds: 0n,
+      invoiceCount: 0n, connectedBalance: 0n, totalSupply: 0n, invoices: [] });
+    await mountWallet();
+    expect(current.role).toBe('manager');
+    expect(current.isManager).toBe(true);
+    expect(current.isV2Manager).toBe(false);
+    expect(current.isInvestor).toBe(false);
   });
 });

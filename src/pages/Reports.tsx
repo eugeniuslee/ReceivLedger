@@ -8,8 +8,8 @@ import { FeeCalculator, FinancialSource, InvoiceAssessment, NavIllustration, use
 
 export function Reports() {
   const { role, isV2Manager, legacyRole } = useLedger();
-  if (isV2Manager) return <><PublicManagerDashboard title="V2 fund financial reporting" />{legacyRole === 'manager' && <details className="model-controls"><summary>Existing V1 financial reports and illustrations</summary><ManagerReports /></details>}</>;
-  if (role !== 'manager') return <div className="notice error">Financial reporting is available to the fund manager. Personal investment illustrations are on investor Home.</div>;
+  if (isV2Manager) return <><PublicManagerDashboard title="RLU2 fund report" />{legacyRole === 'manager' && <details className="model-controls"><summary>RLU reports and scenarios</summary><ManagerReports /></details>}</>;
+  if (role !== 'manager') return <div className="notice error">Financial reporting is available to the fund manager. Personal investment details are on investor Home.</div>;
   return <ManagerReports />;
 }
 function ManagerReports() {
@@ -46,7 +46,7 @@ export function InvestorReporting() {
   const { role } = useLedger();
   const { data } = useFinance();
   if (role !== 'investor' && role !== 'inactiveInvestor') return null;
-  return <><section className="section-block"><h2>Investment reporting data</h2><FinancialSource />{!data && <p className="support-copy">Supply, ownership and valuation illustration require a successful live fund read. Your existing wallet controls remain independent of this report.</p>}</section>{data && <NavIllustration snapshot={data} investor />}</>;
+  return <><section className="section-block"><h2>Investment reporting data</h2><FinancialSource />{!data && <p className="support-copy">Load the fund to see supply, ownership and value estimates. Your existing wallet controls remain independent of this report.</p>}</section>{data && <NavIllustration snapshot={data} investor />}</>;
 }
 
 export function SmeFinancingAssessment() {
@@ -64,8 +64,8 @@ export function SmeCapacity() {
   const { data } = useFinance();
   if (!account || (role !== 'sme' && role !== 'provisional')) return null;
   const capacity = data ? borrowingCapacity(account, data) : null;
-  return <section className="section-block"><h2>Illustrative available financing capacity</h2><FinancialSource />
+  return <section className="section-block"><h2>Estimated financing capacity</h2><FinancialSource />
     {capacity ? <><p className="capacity-value">{money(capacity.indicativeCapacityCents)}</p><p className="support-copy">Default unassessed scenario: 20% SME concentration cap × 50% risk factor, less this wallet's Financed principal, capped by fund liquidity after a 20% reserve. No sales evidence is assumed.</p></> : <p>Live fund data is unavailable. No financing capacity is substituted.</p>}
-    <p className="footnote">A policy illustration, not approved credit or a cash balance. Each invoice still needs payer/maturity checks and manager review. Overdue records require review; the website does not add an automatic contract blocker.</p>
+    <p className="footnote">This estimate is subject to approval. Each invoice still needs payer/maturity checks and manager review. Overdue records require review; the website does not add an automatic contract blocker.</p>
   </section>;
 }

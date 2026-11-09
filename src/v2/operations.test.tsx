@@ -5,6 +5,7 @@ import { ManagerOperations, ManagerOperationsView } from './ManagerOperations';
 import { operationsSummary, type FundReport } from './operations';
 import { concentrationReport, type ReportingInvoice } from './reporting';
 import { V2Ledger } from './V2Ledger';
+import type { Provider } from 'ethers';
 const wallet = '0x' + '11'.repeat(20), other = '0x' + '22'.repeat(20);
 // Synthetic fixtures exist only in this test module, never in the dashboard.
 function snapshot(): FundReport {
@@ -67,12 +68,40 @@ describe('manager operations accounting indicators', () => {
 });
 
 describe('manager operations dashboard', () => {
+  it('distinguishes pending reads from a failed or unavailable fund', () => {
+    const rendered = render(<ManagerOperationsView report={null} loading error="" canRead refresh={vi.fn()} />);
+    expect(screen.getAllByText('Loading…')).toHaveLength(4);
+    expect(screen.queryByText('Unavailable')).toBeNull();
+    expect((screen.getByRole('button', { name: 'Refreshing…' }) as HTMLButtonElement).disabled).toBe(true);
+    rendered.rerender(<ManagerOperationsView report={null} loading={false} error="The Sepolia connection timed out. Try again." canRead refresh={vi.fn()} />);
+    expect(screen.getByRole('alert').textContent).toContain('timed out');
+    expect(screen.getAllByText('Unavailable')).toHaveLength(4);
+    expect((screen.getByRole('button', { name: 'Refresh fund data' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('loads fund records through the supplied wallet provider without destroying the shared connection', async () => {
+    const connection = { getNetwork: vi.fn().mockResolvedValue({ chainId: 11155111n }), destroy: vi.fn() };
+    const provider = connection as unknown as Provider;
+    const sources: unknown[] = [];
+    vi.spyOn(V2Ledger.prototype, 'readReport').mockImplementation(function (this: V2Ledger) {
+      sources.push(this.contract.runner);
+      return Promise.resolve(snapshot());
+    });
+    const view = render(<ManagerOperations wallet={wallet} epoch={0} networkOk readProvider={provider} />);
+    await screen.findByText('Blockchain snapshot · block 123');
+    expect(sources).toEqual([provider]);
+    expect(screen.getByText('No pending investment requests at this block.')).toBeTruthy();
+    view.unmount();
+    expect(connection.destroy).not.toHaveBeenCalled();
+  });
+
   it('leads with actual unavailable/zero states and keeps hypothetical capital blank and collapsed', () => {
     const rendered = view(null);
     expect(screen.getAllByText('Unavailable')).toHaveLength(4);
     expect(screen.getByText(/Requests are unavailable until/)).toBeTruthy();
     const nav = screen.getByLabelText('Scenario fund NAV (S$)') as HTMLInputElement;
     expect(nav.value).toBe(''); expect(nav.closest('details')?.open).toBe(false);
+    expect(screen.getByText('Risk monitoring').closest('details')?.open).toBe(false);
     expect(screen.queryByText(/10,000,000/)).toBeNull();
     rendered.rerender(<ManagerOperationsView report={snapshot()} loading={false} error="" canRead refresh={vi.fn()}/>);
     expect(screen.getByText('No active units')).toBeTruthy();
@@ -87,7 +116,8 @@ describe('manager operations dashboard', () => {
     expect(screen.getByRole('button', {name: 'Investment Requests 1'})).toBeTruthy();
     expect(screen.queryByRole('button', {name: 'Review investment request 8'})).toBeNull();
     fireEvent.click(screen.getByRole('button', {name: 'Review investment request 7'}));
-    expect(screen.getByRole('article', {name: 'Selected request review'}).textContent).toContain('Funding not confirmed');
+    expect(within(screen.getByRole('article', {name: 'Selected request review'})).getByText('Not confirmed')).toBeTruthy();
+    expect(screen.queryByRole('columnheader', {name: 'Submitted (SGT)'})).toBeNull();
     expect((screen.getByRole('button', {name: 'Confirm simulated funding'}) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByLabelText('Pending only'));
     expect(screen.getByRole('button', {name: 'Review investment request 8'})).toBeTruthy();
@@ -97,11 +127,11 @@ describe('manager operations dashboard', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Invoice Financing 1'}));
     expect(screen.getByRole('columnheader', {name: 'Maturity (SGT)'})).toBeTruthy();
     expect(screen.getByRole('button', {name: 'Review invoice request 10'})).toBeTruthy();
-    expect(screen.getByText(/Submission dates are not stored/)).toBeTruthy();
+    expect(screen.queryByText(/Submission dates are not stored/)).toBeNull();
   });
   it('keeps scenario calculations separate from the displayed fund snapshot', () => {
     view();
-    const navMetric = screen.getByText('V2 fund NAV').closest('.metric')!;
+    const navMetric = screen.getByText('Fund NAV').closest('.metric')!;
     const before = navMetric.textContent;
     fireEvent.click(screen.getByText('Scenario Analysis'));
     fireEvent.change(screen.getByLabelText('Scenario fund NAV (S$)'), {target: {value: '10000000'}});
@@ -133,6 +163,6 @@ describe('manager operations dashboard', () => {
     expect(read).not.toHaveBeenCalled(); expect(screen.getByRole('alert').textContent).toContain('must match the verified');
     rendered.rerender(<ManagerOperationsView report={null} loading={false} error="RPC unavailable" canRead refresh={vi.fn()}/>);
     expect(screen.getByRole('alert').textContent).toContain('RPC unavailable');
-    expect(within(screen.getByRole('region', {name: 'V2 fund overview'})).getAllByText('Unavailable')).toHaveLength(4);
+    expect(within(screen.getByRole('region', {name: 'Fund overview'})).getAllByText('Unavailable')).toHaveLength(4);
   });
 });

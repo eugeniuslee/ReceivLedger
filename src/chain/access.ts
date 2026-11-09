@@ -1,6 +1,6 @@
 ﻿import type { WalletRole } from './chainLedger';
 
-export type PageId = 'dashboard' | 'assets' | 'submitInvoice' | 'invoices' | 'investors' | 'transfer' | 'history' | 'profile' | 'settings' | 'help' | 'about' | 'registration' | 'applications' | 'documents' | 'reports' | 'fund';
+export type PageId = 'dashboard' | 'assets' | 'submitInvoice' | 'invoices' | 'investors' | 'transfer' | 'history' | 'profile' | 'settings' | 'help' | 'about' | 'registration' | 'applications' | 'documents' | 'reports' | 'fund' | 'purchases';
 export interface NavItem { id: PageId; title: string; icon: string }
 
 export const ROLE_PAGES: Record<WalletRole, NavItem[]> = {
@@ -8,17 +8,20 @@ export const ROLE_PAGES: Record<WalletRole, NavItem[]> = {
     { id: 'dashboard', title: 'Home', icon: '◫' },
     { id: 'reports', title: 'Financial Reports', icon: '▥' },
     { id: 'applications', title: 'Applications', icon: '✓' },
+    { id: 'purchases', title: 'Purchase Requests', icon: '＋' },
     { id: 'investors', title: 'Investors', icon: '◉' },
     { id: 'invoices', title: 'Invoices', icon: '▤' },
     { id: 'history', title: 'Transaction History', icon: '≋' },
   ],
   investor: [
     { id: 'dashboard', title: 'Home', icon: '◫' },
+    { id: 'purchases', title: 'Buy RLU', icon: '＋' },
     { id: 'assets', title: 'My Assets', icon: '◉' },
     { id: 'history', title: 'Transaction History', icon: '≋' },
   ],
   inactiveInvestor: [
     { id: 'dashboard', title: 'Home', icon: '◫' },
+    { id: 'purchases', title: 'Purchase Requests', icon: '＋' },
     { id: 'assets', title: 'My Assets', icon: '◉' },
     { id: 'history', title: 'Transaction History', icon: '≋' },
   ],
@@ -33,9 +36,12 @@ export const ROLE_PAGES: Record<WalletRole, NavItem[]> = {
   ],
 };
 
-export function canAccessPage(role: WalletRole | null, page: PageId): boolean {
-  if (page === 'fund') return role !== null && role !== 'provisional';
-  if (page === 'reports') return role === 'manager';
+export function canAccessPage(role: WalletRole | null, page: PageId, isV2Manager = false): boolean {
+  if (isV2Manager && (page === 'dashboard' || page === 'profile')) return true;
+  // Opening this page does not grant private purchase-review permission.
+  if (isV2Manager && page === 'purchases') return true;
+  if (page === 'fund') return isV2Manager || role !== null && role !== 'provisional';
+  if (page === 'reports') return isV2Manager || role === 'manager';
   if (page === 'applications') return role === 'manager';
   if (page === 'registration') return role !== 'manager';
   if (page === 'documents') return role !== null;
@@ -46,9 +52,13 @@ export function canAccessPage(role: WalletRole | null, page: PageId): boolean {
   return role !== null && ROLE_PAGES[role].some(item => item.id === page);
 }
 
-export function navigationForRole(role: WalletRole | null): NavItem[] {
-  if (!role) return [];
-  return [...ROLE_PAGES[role], ...(role==='provisional'?[]:[{id:'fund' as const,title:'Financing & Fund Requests',icon:'◇'}])];
+export function navigationForRole(role: WalletRole | null, isV2Manager = false): NavItem[] {
+  if (!role && !isV2Manager) return [];
+  const navigation = [...ROLE_PAGES[role ?? 'provisional']];
+  if (isV2Manager && role !== 'manager') navigation.splice(1, 0, { id: 'reports', title: 'Financial Reports', icon: '▥' });
+  if (isV2Manager && !navigation.some(item => item.id === 'purchases')) navigation.push({ id: 'purchases', title: 'RLU Purchase Requests', icon: '＋' });
+  if (isV2Manager || role !== 'provisional') navigation.push({ id: 'fund', title: 'Financing & Fund Requests', icon: '◇' });
+  return navigation;
 }
 
 export const SUPPORT_PAGES: NavItem[] = [

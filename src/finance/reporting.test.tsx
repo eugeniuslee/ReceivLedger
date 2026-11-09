@@ -104,8 +104,9 @@ describe('invoice maturity and unchanged transaction arguments', () => {
     expect(screen.getByText('1 day(s) overdue')).toBeTruthy(); expect(screen.getByText('Financed', { selector: '.status' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '#1' }));
     const dialog = within(screen.getByRole('dialog'));
+    fireEvent.click(dialog.getByText('Activity history'));
     expect(dialog.getByRole('link', { name: 'View confirmed transaction' }).getAttribute('href')).toBe('https://sepolia.etherscan.io/tx/0xrealtesthash');
-    expect(dialog.queryByText('InvoiceRepaid')).toBeNull(); expect(wallet.runTransaction).not.toHaveBeenCalled();
+    expect(dialog.queryByText('Repayment recorded')).toBeNull(); expect(wallet.runTransaction).not.toHaveBeenCalled();
   });
   it('leaves Repaid records closed after maturity and outside the Overdue filter', () => {
     records('Repaid', testNow - 86400n); render(<Invoices />);
@@ -116,9 +117,10 @@ describe('invoice maturity and unchanged transaction arguments', () => {
   it('always passes only the actual invoice ID to full-face financing after a proposal edit', async () => {
     records('Approved'); render(<Invoices />); fireEvent.click(screen.getByRole('button', { name: '#1' }));
     const dialog = within(screen.getByRole('dialog'));
+    fireEvent.click(dialog.getByText('Financing estimate'));
     fireEvent.change(dialog.getByLabelText('Proposed advance (%)'), { target: { value: '70' } });
     expect(dialog.getByText('S$70.00')).toBeTruthy(); expect(wallet.runTransaction).not.toHaveBeenCalled();
-    fireEvent.click(dialog.getByRole('button', { name: 'Finance full S$100 on-chain' }));
+    fireEvent.click(dialog.getByRole('button', { name: 'Finance S$100' }));
     await waitFor(() => expect(wallet.runTransaction).toHaveBeenCalledTimes(1));
     const [role, action] = vi.mocked(wallet.runTransaction).mock.calls[0];
     expect(role).toBe('manager');
@@ -141,22 +143,60 @@ describe('invoice maturity and unchanged transaction arguments', () => {
     const dialog = within(screen.getByRole('dialog'));
     expect(dialog.getByText(/differs from the reporting snapshot/)).toBeTruthy();
     expect(dialog.queryByText('Recommended total borrowing limit')).toBeNull();
-    expect(dialog.getByRole('button', { name: 'Finance full S$100 on-chain' })).toBeTruthy();
+    expect(dialog.getByRole('button', { name: 'Finance S$100' })).toBeTruthy();
     expect(wallet.runTransaction).not.toHaveBeenCalled();
   });
 });
 
 
 describe('public invoice review versus private documents', () => {
+  it('explains a reporting manager wallet without RLU authority and restores invoice review for the RLU manager', async () => {
+    const manager = '0x1111111111111111111111111111111111111111';
+    const invoice = testInvoice({ status: 'Submitted' });
+    wallet.snapshot = { role: 'sme', manager, invoices: [invoice] };
+    const view = render(<Invoices />);
+    expect(screen.getByRole('status').textContent).toContain('The connected wallet cannot manage RLU invoices.');
+    expect(screen.getByText(manager)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Review' })).toBeNull();
+    expect(screen.queryByText('Loading invoice records…')).toBeNull();
+    expect(wallet.runTransaction).not.toHaveBeenCalled();
+
+    wallet.account = manager;
+    wallet.snapshot = { role: 'manager', manager, totalFundSize: 1000n, availableFunds: 1000n, invoiceCount: 1n, connectedBalance: 0n, totalSupply: 1000n, invoices: [invoice] };
+    view.rerender(<Invoices />);
+    expect(screen.queryByText('RLU invoice manager access required')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve invoice' }));
+    await waitFor(() => expect(wallet.runTransaction).toHaveBeenCalledOnce());
+    const [role, action] = vi.mocked(wallet.runTransaction).mock.calls[0];
+    expect(role).toBe('manager');
+    const approveInvoice = vi.fn().mockResolvedValue(undefined);
+    await action({ approveInvoice } as unknown as ChainLedger);
+    expect(approveInvoice).toHaveBeenCalledWith(invoice.id);
+  });
+
+  it('keeps a missing manager snapshot unavailable after loading rather than claiming missing authority', () => {
+    wallet.loading = true;
+    const view = render(<Invoices />);
+    expect(screen.getByText('Loading invoice records…')).toBeTruthy();
+    wallet.loading = false;
+    view.rerender(<Invoices />);
+    expect(screen.queryByText('Loading invoice records…')).toBeNull();
+    expect(screen.getByText(/Invoice records are unavailable/)).toBeTruthy();
+    expect(screen.queryByText('RLU invoice manager access required')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Review' })).toBeNull();
+    expect(wallet.runTransaction).not.toHaveBeenCalled();
+  });
+
   it('shows public invoice details, timeline and calculations without an embedded login or private request', () => {
     const invoice = testInvoice({ status: 'Approved', amount: 500n });
     wallet.snapshot = { role: 'manager', manager: invoice.sme, totalFundSize: 1100n, availableFunds: 1100n, invoiceCount: 1n, connectedBalance: 0n, totalSupply: 1100n, invoices: [invoice] };
     render(<Invoices />); fireEvent.click(screen.getByRole('button', { name: '#1' }));
     const dialog = within(screen.getByRole('dialog'));
-    expect(dialog.getByText('On-chain invoice record')).toBeTruthy();
+    expect(dialog.getByRole('heading', { name: 'Invoice #1' })).toBeTruthy();
     expect(dialog.queryByRole('button', { name: 'Verify Fund Manager Wallet' })).toBeNull();
     expect(dialog.queryByText('Frontend Supabase configuration unavailable')).toBeNull();
-    expect(dialog.getByRole('button', { name: 'Finance full S$500 on-chain' })).toBeTruthy();
+    expect(dialog.getByRole('button', { name: 'Finance S$500' })).toBeTruthy();
     fireEvent.click(dialog.getByRole('button', { name: 'View private documents' }));
     expect((dialog.getByRole('button', { name: 'Verify Fund Manager Wallet' }) as HTMLButtonElement).disabled).toBe(true);
     expect(dialog.queryByLabelText('Fictional PDF')).toBeNull();
