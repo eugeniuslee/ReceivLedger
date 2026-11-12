@@ -32,3 +32,15 @@ describe('same-tab credential storage',()=>{
     await client.auth.stopAutoRefresh();
   });
 });
+
+describe('browser credential storage', () => {
+  it('keeps the sign-in in localStorage so it survives new tabs and restarts', async () => {
+    const { createBrowserSessionStorage } = await import('./sessionStorage');
+    const first = createBrowserSessionStorage();
+    first.setItem('sb-session', 'token');
+    expect(window.localStorage.getItem('sb-session')).toBe('token');
+    expect(createBrowserSessionStorage().getItem('sb-session')).toBe('token');
+    first.removeItem('sb-session');
+    expect(window.localStorage.getItem('sb-session')).toBeNull();
+  });
+});

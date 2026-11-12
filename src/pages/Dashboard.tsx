@@ -1,3 +1,4 @@
+import { useInvoiceReviews } from '../registration/invoiceReviews';
 import { useRegistry } from '../registration/RegistryContext';
 import { invoiceWork, useReviewCounts } from '../chain/ReviewCounts';
 import { useLedger } from '../chain/LedgerContext';
@@ -30,7 +31,8 @@ function ManagerDashboard({ snapshot, onNavigate }: { snapshot: FundSnapshot; on
   const counts = useReviewCounts();
   const { authenticated } = useRegistry();
   const outstanding = snapshot.totalFundSize - snapshot.availableFunds;
-  const { invoicesToApprove: pending, invoicesToFinance: readyToFinance, overdue, dueSoon } = invoiceWork(snapshot.invoices, now);
+  const { reviews } = useInvoiceReviews();
+  const { invoicesToApprove: pending, invoicesToFinance: readyToFinance, overdue, dueSoon } = invoiceWork(snapshot.invoices, now, reviews);
   const latest = [...snapshot.invoices].reverse();
   const reviewItems: [string, string, number | null, PageId][] = [
     ['Investor & SME applications', authenticated ? 'Pending KYC and company review' : 'Verify your wallet in Applications to see this count', counts.applications, 'applications'],

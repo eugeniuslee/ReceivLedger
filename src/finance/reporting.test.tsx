@@ -113,11 +113,13 @@ describe('invoice maturity and unchanged transaction arguments', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Status' }), { target: { value: 'Overdue' } });
     expect(screen.queryByRole('button', { name: '#1' })).toBeNull(); expect(wallet.runTransaction).not.toHaveBeenCalled();
   });
-  it('always passes only the actual invoice ID to full-face financing after a proposal edit', async () => {
+  it('always passes only the actual invoice ID to full-face financing', async () => {
     records('Approved'); render(<Invoices />); fireEvent.click(screen.getByRole('button', { name: '#1' }));
     const dialog = within(screen.getByRole('dialog'));
-    fireEvent.change(dialog.getByLabelText('Proposed advance (%)'), { target: { value: '70' } });
-    expect(dialog.getByText('S$70.00')).toBeTruthy(); expect(wallet.runTransaction).not.toHaveBeenCalled();
+    expect(within(dialog.getByLabelText('Cash disbursement breakdown')).getByText('S$90.00')).toBeTruthy(); // 90% advance shown, not sent
+    expect(wallet.runTransaction).not.toHaveBeenCalled();
+    // S$90 advance is above 1% of the S$1,000 NAV, so the manager must confirm.
+    fireEvent.change(dialog.getByLabelText(/Type CONFIRM/), { target: { value: 'CONFIRM' } });
     fireEvent.click(dialog.getByRole('button', { name: 'Finance full S$100 on-chain' }));
     await waitFor(() => expect(wallet.runTransaction).toHaveBeenCalledTimes(1));
     const [role, action] = vi.mocked(wallet.runTransaction).mock.calls[0];
@@ -135,15 +137,6 @@ describe('invoice maturity and unchanged transaction arguments', () => {
     expect(dialog.getByText(/full event history has not been indexed/)).toBeTruthy();
     expect(dialog.queryByRole('button', { name: 'Record repayment' })).toBeNull(); expect(wallet.runTransaction).not.toHaveBeenCalled();
   });
-  it('hides a proposal when the invoice differs from the pinned portfolio block', () => {
-    records('Approved'); finance.data = testSnapshot({ invoices: [testInvoice({ status: 'Repaid' })] });
-    render(<Invoices />); fireEvent.click(screen.getByRole('button', { name: '#1' }));
-    const dialog = within(screen.getByRole('dialog'));
-    expect(dialog.getByText(/differs from the reporting snapshot/)).toBeTruthy();
-    expect(dialog.queryByText('Recommended total borrowing limit')).toBeNull();
-    expect(dialog.getByRole('button', { name: 'Finance full S$100 on-chain' })).toBeTruthy();
-    expect(wallet.runTransaction).not.toHaveBeenCalled();
-  });
 });
 
 
@@ -157,11 +150,9 @@ describe('public invoice review versus private documents', () => {
     expect(dialog.queryByRole('button', { name: 'Verify Fund Manager Wallet' })).toBeNull();
     expect(dialog.queryByText('Frontend Supabase configuration unavailable')).toBeNull();
     expect(dialog.getByRole('button', { name: 'Finance full S$500 on-chain' })).toBeTruthy();
-    fireEvent.click(dialog.getByRole('button', { name: 'View private documents' }));
-    expect((dialog.getByRole('button', { name: 'Verify Fund Manager Wallet' }) as HTMLButtonElement).disabled).toBe(true);
+    // Documents are private: without a wallet session the section says so instead of loading them.
+    expect(within(dialog.getByLabelText('Documents')).getByText(/Sign in with your wallet/)).toBeTruthy();
     expect(dialog.queryByLabelText('Fictional PDF')).toBeNull();
-    fireEvent.click(dialog.getByRole('button', { name: 'Hide private documents' }));
-    expect(dialog.queryByRole('button', { name: 'Verify Fund Manager Wallet' })).toBeNull();
     expect(wallet.runTransaction).not.toHaveBeenCalled();
   });
 });

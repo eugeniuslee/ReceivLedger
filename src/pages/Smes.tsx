@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useInvoiceCredits } from '../finance/credits';
 import { useLedger } from '../chain/LedgerContext';
 import { useRegistry } from '../registration/RegistryContext';
 import { useFinance } from '../finance/FinanceContext';
@@ -17,12 +18,13 @@ interface SmeRow {
 export function Smes() {
   const { role, networkOk, snapshot, events } = useLedger();
   const { now } = useFinance();
+  const credits = useInvoiceCredits();
   const { displayName } = useRegistry();
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const invoices = snapshot?.role === 'manager' ? snapshot.invoices : [];
   const rows = useMemo(() => {
-    const income = new Map(invoiceIncome(invoices, events ?? [], now).map(row => [row.invoice.id.toString(), row]));
+    const income = new Map(invoiceIncome(invoices, events ?? [], now, credits).map(row => [row.invoice.id.toString(), row]));
     const bySme = new Map<string, SmeRow>();
     for (const invoice of invoices) {
       const key = invoice.sme.toLowerCase();
@@ -37,7 +39,7 @@ export function Smes() {
       bySme.set(key, row);
     }
     return [...bySme.values()].sort((a, b) => b.overdue - a.overdue || (b.receivableCents > a.receivableCents ? 1 : b.receivableCents < a.receivableCents ? -1 : 0));
-  }, [invoices, events, now]);
+  }, [invoices, events, now, credits]);
 
   if (role !== 'manager') return <div className="notice error" role="alert">The SME overview is available only to the fund manager.</div>;
   if (!networkOk) return <div className="empty-state">Switch to Sepolia to load SME records.</div>;

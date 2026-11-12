@@ -8,10 +8,11 @@ import { compactAddress, formatInteger, formatMoney } from '../chain/presentatio
 import { financialDate } from '../finance/presentation';
 import { maturityState, money } from '../finance/models';
 import { termsAt } from '../finance/financing';
-import { unitValueCents, useFundNav } from '../finance/useFundNav';
+import { navPriceText, unitsForAmount, unitValueCents, useFundNav } from '../finance/useFundNav';
 import { PrivateAccess } from '../components/PrivateAccess';
 import { isOpen, requestAmount, STATUS_LABELS, useFundRequests, type FundRequest } from '../registration/fundRequests';
 import { userFacingError } from '../errors';
+import { latestProof, paymentReference, ProofStatus, ProofUpload, useDocuments } from '../components/ProofUpload';
 import { Investors } from './Investors';
 
 /** Investors buy RLU at this fixed price (the ledger issues 1 RLU per S$1). */
@@ -44,12 +45,14 @@ function useHoldings() {
 }
 
 function HoldingMetrics() {
-  const { units, valueCents, ownership, navPerRluCents } = useHoldings();
+  const { units, valueCents, ownership } = useHoldings();
+  const { nav, data } = useFundNav();
+  const navPrice = navPriceText(nav?.navCents, data?.totalSupply);
   return <section className="metric-grid" aria-label="Your holding">
     <div className="metric emphasis"><span>Your RLU</span><strong>{units === null ? '—' : `${formatInteger(units)} RLU`}</strong><small>On-chain balance</small></div>
     <div className="metric"><span>Holding value</span><strong>{valueCents === null ? '—' : money(valueCents)}</strong><small>At today’s NAV</small></div>
     <div className="metric"><span>Your ownership</span><strong>{ownership}</strong><small>Share of all RLU</small></div>
-    <div className="metric"><span>NAV per RLU</span><strong>{navPerRluCents === null ? '—' : money(navPerRluCents)}</strong><small>Issued at {money(ISSUE_PRICE_CENTS)}</small></div>
+    <div className="metric"><span>NAV per RLU</span><strong>{navPrice}</strong><small>Price to subscribe or redeem</small></div>
   </section>;
 }
 
@@ -177,6 +180,7 @@ export function FundPerformance() {
           <div><dt>Invoices being financed</dt><dd>{financed.length}</dd></div>
           <div><dt>Invoices repaid</dt><dd>{repaid.length}</dd></div>
           <div><dt>Overdue invoices</dt><dd>{overdue}</dd></div>
+          <div><dt>Impaired or written off</dt><dd>{nav.problemInvoices}</dd></div>
           <div><dt>Average invoice size</dt><dd>{everFinanced.length ? money(average) : '—'}</dd></div>
         </dl>
         <p className="footnote">Individual SMEs and payers are kept private.</p>
@@ -185,6 +189,7 @@ export function FundPerformance() {
         <dl className="detail-list">
           <div><dt>Service fees</dt><dd>{money(nav.serviceFeesCents + nav.realisedFeesCents)}</dd></div>
           <div><dt>Interest</dt><dd>{money(nav.accruedInterestCents + nav.realisedInterestCents)}</dd></div>
+          <div><dt>Bad debt losses</dt><dd>{nav.creditLossCents > 0n ? `−${money(nav.creditLossCents)}` : money(0n)}</dd></div>
           <div><dt>Fund capital</dt><dd>{money(data.totalFundSize * 100n)}</dd></div>
         </dl>
         <p className="footnote">The fund advances {rate(terms.advanceBps)} of each invoice, charging a {rate(terms.serviceFeeBps)} fee and {rate(terms.annualInterestBps)} a year interest on the cash advanced.</p>
@@ -200,10 +205,7 @@ export function Invest() {
   if (role !== 'investor') return <p className="notice error">Only approved investors can subscribe, redeem or transfer RLU.</p>;
   return <>
     <HoldingMetrics />
-    <section className="dashboard-grid">
-      <PrivateAccess compact message="Sign in with your wallet to request a subscription."><SubscribeCard /></PrivateAccess>
-      <PrivateAccess compact message="Sign in with your wallet to request a redemption."><RedeemCard /></PrivateAccess>
-    </section>
+    <PrivateAccess compact message="Sign in with your wallet to subscribe or redeem."><TradeCard /></PrivateAccess>
     <Investors investorTransferOnly />
     <PrivateAccess compact message="Sign in with your wallet to see your requests."><MyRequests /></PrivateAccess>
   </>;
@@ -223,54 +225,83 @@ function useRequestForm() {
   return { ...requests, busy, message, error, submit };
 }
 
-function SubscribeCard() {
+/** One box for both requests: choose Subscribe or Redeem. Both deal at NAV per RLU. */
+function TradeCard() {
   const form = useRequestForm();
-  const [amount, setAmount] = useState('');
-  const valid = /^[1-9]\d{0,9}$/.test(amount);
-  return <div className="section-block"><h3>Subscribe</h3>
-    <p className="support-copy">Buy RLU at {money(ISSUE_PRICE_CENTS)} each. The fund manager confirms your payment, then issues your RLU.</p>
-    <form className="registration-form" onSubmit={async event => { event.preventDefault(); if (valid && await form.submit(() => form.create('subscription', BigInt(amount)), `Subscription request for ${formatMoney(BigInt(amount))} sent.`)) setAmount(''); }}>
-      <label>Amount (S$)<input type="number" min="1" step="1" inputMode="numeric" value={amount} onChange={event => setAmount(event.target.value)} /></label>
-      {valid && <p className="support-copy">You will receive <b>{formatInteger(BigInt(amount))} RLU</b>.</p>}
-      <button className="btn" disabled={!valid || form.busy}>{form.busy ? 'Sending…' : 'Request subscription'}</button>
-    </form>
-    {form.message && <p className="notice info" role="status">{form.message}</p>}
-    {form.error && <p className="inline-error" role="alert">{form.error}</p>}
-  </div>;
-}
-
-function RedeemCard() {
-  const form = useRequestForm();
-  const { units, navPerRluCents } = useHoldings();
+  const { units } = useHoldings();
   const { nav, data } = useFundNav();
+  const [kind, setKind] = useState<'subscription' | 'redemption'>('subscription');
   const [amount, setAmount] = useState('');
-  const requestedUnits = /^[1-9]\d{0,9}$/.test(amount) ? BigInt(amount) : null;
-  const tooMany = requestedUnits !== null && units !== null && requestedUnits > units;
-  const value = requestedUnits !== null && nav && data ? unitValueCents(requestedUnits, nav.navCents, data.totalSupply) : null;
-  return <div className="section-block"><h3>Redeem</h3>
-    <p className="support-copy">Sell RLU back to the fund at NAV{navPerRluCents !== null ? ` (${money(navPerRluCents)} per RLU today)` : ''}. The fund manager pays you once approved.</p>
-    <form className="registration-form" onSubmit={async event => { event.preventDefault(); if (requestedUnits !== null && !tooMany && await form.submit(() => form.create('redemption', requestedUnits), `Redemption request for ${formatInteger(requestedUnits)} RLU sent.`)) setAmount(''); }}>
-      <label>RLU to redeem<input type="number" min="1" step="1" inputMode="numeric" value={amount} onChange={event => setAmount(event.target.value)} /></label>
-      {units !== null && units > 0n && <button type="button" className="btn o small" onClick={() => setAmount(units.toString())}>Use full balance ({formatInteger(units)} RLU)</button>}
-      {value !== null && !tooMany && <p className="support-copy">Estimated value today: <b>{money(value)}</b>. The final amount uses NAV when paid.</p>}
+  const price = navPriceText(nav?.navCents, data?.totalSupply);
+  const value = /^[1-9]\d{0,9}$/.test(amount) ? BigInt(amount) : null;
+  const buyUnits = kind === 'subscription' && value !== null ? unitsForAmount(value, nav?.navCents, data?.totalSupply) : null;
+  const tooMany = kind === 'redemption' && value !== null && units !== null && value > units;
+  const tooSmall = buyUnits !== null && buyUnits <= 0n;
+  const proceeds = kind === 'redemption' && value !== null && nav && data ? unitValueCents(value, nav.navCents, data.totalSupply) : null;
+  const canSend = value !== null && !tooMany && !tooSmall && !form.busy;
+  function choose(next: 'subscription' | 'redemption') { setKind(next); setAmount(''); }
+  async function send() {
+    if (!canSend || value === null) return;
+    const ok = kind === 'subscription'
+      ? await form.submit(() => form.create('subscription', value), `Subscription request for ${formatMoney(value)} sent.`)
+      : await form.submit(() => form.create('redemption', value), `Redemption request for ${formatInteger(value)} RLU sent.`);
+    if (ok) setAmount('');
+  }
+  return <section className="section-block trade-card"><div className="section-heading"><h3>Subscribe or redeem</h3><span className="trade-price">NAV per RLU <b>{price}</b></span></div>
+    <form className="registration-form" onSubmit={event => { event.preventDefault(); void send(); }}>
+      <div className="trade-fields">
+        <label>I want to<select value={kind} onChange={event => choose(event.target.value as 'subscription' | 'redemption')}>
+          <option value="subscription">Subscribe (buy RLU)</option>
+          <option value="redemption">Redeem (sell RLU)</option>
+        </select></label>
+        <label>{kind === 'subscription' ? 'Amount (S$)' : 'RLU to redeem'}<input type="number" min="1" step="1" inputMode="numeric" value={amount} onChange={event => setAmount(event.target.value)} /></label>
+      </div>
+      {kind === 'redemption' && units !== null && units > 0n && <button type="button" className="btn o small" onClick={() => setAmount(units.toString())}>Use full balance ({formatInteger(units)} RLU)</button>}
+      <p className="support-copy">{kind === 'subscription'
+        ? buyUnits !== null && !tooSmall ? <>At {price} per RLU you would receive about <b>{formatInteger(buyUnits)} RLU</b>. RLU are whole units; the final number uses NAV on the day the fund manager issues them.</> : `You buy RLU at NAV per RLU (${price} today). The fund manager confirms your payment, then issues your RLU.`
+        : proceeds !== null && !tooMany ? <>At {price} per RLU you would receive about <b>{money(proceeds)}</b>. The final amount uses NAV on the day you are paid.</> : `You sell RLU back to the fund at NAV per RLU (${price} today). The fund manager pays you once approved.`}</p>
       {tooMany && <p className="inline-error">You hold {formatInteger(units!)} RLU.</p>}
-      <button className="btn" disabled={requestedUnits === null || tooMany || form.busy}>{form.busy ? 'Sending…' : 'Request redemption'}</button>
+      {tooSmall && <p className="inline-error">That amount is less than one RLU at today’s NAV.</p>}
+      <button className="btn" disabled={!canSend}>{form.busy ? 'Sending…' : kind === 'subscription' ? 'Request subscription' : 'Request redemption'}</button>
     </form>
     {form.message && <p className="notice info" role="status">{form.message}</p>}
     {form.error && <p className="inline-error" role="alert">{form.error}</p>}
-  </div>;
+  </section>;
 }
 
 function MyRequests() {
   const form = useRequestForm();
+  const { documents, reload: reloadDocuments } = useDocuments();
+  const [uploading, setUploading] = useState<string | null>(null);
   const items = form.requests ?? [];
+  const proofFor = (id: string) => latestProof(documents, doc => doc.purpose === 'subscription' && doc.fund_request_id === id);
   return <section className="section-block"><div className="section-heading"><h3>Your requests</h3><button className="btn o small" disabled={form.loading} onClick={() => void form.reload()}>{form.loading ? 'Refreshing…' : 'Refresh'}</button></div>
     {form.requests === null ? <p className="empty-state compact">{form.loading ? 'Loading your requests…' : form.error || 'Requests are unavailable.'}</p>
       : items.length ? <div className="table-scroll"><table><thead><tr><th>Request</th><th>Requested</th><th>Status</th><th>Action</th></tr></thead>
-        <tbody>{items.map(item => <tr key={item.id}><td>{describe(item)}{item.kind === 'subscription' && <small className="document-meta">{formatInteger(requestAmount(item))} RLU</small>}</td><td>{requested(item)}</td><td><RequestStatus item={item} /></td>
-          <td>{item.status === 'pending' ? <button className="btn o small" disabled={form.busy} onClick={() => void form.submit(() => form.cancel(item.id), 'Request cancelled.')}>Cancel</button> : item.tx_hash ? <a className="tx-link" href={`${SEPOLIA_EXPLORER}/tx/${item.tx_hash}`} target="_blank" rel="noreferrer">View transaction</a> : '—'}</td></tr>)}</tbody></table></div>
+        <tbody>{items.map(item => <tr key={item.id}><td>{describe(item)}{item.kind === 'subscription' && isOpen(item) && <SubscriptionUnits amount={requestAmount(item)} />}</td><td>{requested(item)}</td><td><RequestStatus item={item} /></td>
+          <td>{item.status === 'pending' ? <button className="btn o small" disabled={form.busy} onClick={() => void form.submit(() => form.cancel(item.id), 'Request cancelled.')}>Cancel</button>
+            : item.kind === 'subscription' && item.status === 'approved' ? <PaymentStep item={item} proof={proofFor(item.id)} uploading={uploading === item.id} onUpload={() => setUploading(item.id)} onClose={() => setUploading(null)} onUploaded={() => { setUploading(null); void reloadDocuments(); }} />
+            : item.tx_hash ? <a className="tx-link" href={`${SEPOLIA_EXPLORER}/tx/${item.tx_hash}`} target="_blank" rel="noreferrer">View transaction</a> : '—'}</td></tr>)}</tbody></table></div>
       : <p className="empty-state compact">You have not made any requests yet.</p>}
     {form.message && <p className="notice info" role="status">{form.message}</p>}
     {form.error && form.requests !== null && <p className="inline-error" role="alert">{form.error}</p>}
   </section>;
+}
+
+/** After approval: pay the subscription amount, then upload proof. A rejected proof can be replaced. */
+function PaymentStep({ item, proof, uploading, onUpload, onClose, onUploaded }: { item: FundRequest; proof: ReturnType<typeof latestProof>; uploading: boolean; onUpload: () => void; onClose: () => void; onUploaded: () => void }) {
+  const canUpload = !proof || proof.status === 'rejected';
+  return <div className="payment-step">
+    <p><b>Pay {formatMoney(requestAmount(item))}</b> to the fund and quote reference <b className="mono">{paymentReference(item.id)}</b>.</p>
+    {proof && <ProofStatus proof={proof} />}
+    {proof?.status === 'verified' && <small className="document-meta">The fund manager will now issue your RLU.</small>}
+    {canUpload && (uploading ? <ProofUpload link={{ purpose: 'subscription', fund_request_id: item.id }} onDone={onUploaded} onCancel={onClose} />
+      : <button className="btn small" onClick={onUpload}>{proof ? 'Upload a new proof' : 'Upload payment proof'}</button>)}
+  </div>;
+}
+
+/** Estimated RLU for an open subscription at today's NAV. */
+function SubscriptionUnits({ amount }: { amount: bigint }) {
+  const { nav, data } = useFundNav();
+  return <small className="document-meta">≈ {formatInteger(unitsForAmount(amount, nav?.navCents, data?.totalSupply))} RLU at today’s NAV</small>;
 }

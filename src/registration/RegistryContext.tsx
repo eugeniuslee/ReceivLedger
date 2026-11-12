@@ -6,6 +6,7 @@ import { createSignInMessage, isSignInOriginError, sameWallet } from './auth';
 import { needsApplicationSession, rememberApplicationWallet } from './enrollment';
 import type { Application, RegistrySnapshot } from '../../supabase/functions/_shared/domain';
 import { userFacingError, walletErrorMessage } from '../errors';
+import { usePreferences } from '../settings/preferences';
 
 interface DirectoryName { wallet: string; display_name: string; kind: string }
 interface AuthenticatedState extends RegistrySnapshot { token: string; scope: string; version: number; names: DirectoryName[] }
@@ -50,13 +51,17 @@ async function restorePrivateSession(client: SupabaseClient, session: Session, w
 }
 
 export function RegistryProvider({ children, client = registryClient }: { children: ReactNode; client?: SupabaseClient | null }) {
-  const { account, networkOk, walletChecking, walletEpoch = 0, signWalletMessage } = useLedger();
+  const { account, networkOk, walletChecking, walletEpoch = 0, signWalletMessage, transactionPending } = useLedger();
+  const { preferences } = usePreferences();
   const scope = account && networkOk ? account.toLowerCase() : '';
   const generation = useRef({ scope, epoch: walletEpoch, version: 0 });
   if (generation.current.scope !== scope || generation.current.epoch !== walletEpoch) generation.current = { scope, epoch: walletEpoch, version: generation.current.version + 1 };
   const [state, setState] = useState<AuthenticatedState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Which wallet's saved-session restore has finished; automatic sign-in waits for it.
+  const [restoredKey, setRestoredKey] = useState<string | null>(null);
+  const autoAttempted = useRef(new Set<string>());
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const operationInFlight = useRef(false);
   const previousScope = useRef<{ scope: string; epoch: number } | null>(null);
@@ -116,7 +121,7 @@ export function RegistryProvider({ children, client = registryClient }: { childr
         } else setError(signOutFailure);
       } finally {
         if (restoringUser.current?.version === version) restoringUser.current = null;
-        if (active && version === generation.current.version) setBusy(false);
+        if (active && version === generation.current.version) { setBusy(false); setRestoredKey(`${scope}:${walletEpoch}`); }
       }
     });
     return () => { active = false; };
@@ -264,6 +269,18 @@ export function RegistryProvider({ children, client = registryClient }: { childr
       throw new Error(message);
     }
   }
+  // Ask for the sign-in signature automatically, once per connected wallet, after any saved
+  // session has been tried. A rejected prompt is not repeated; the sign-in button remains.
+  const signInRef = useRef(signIn); signInRef.current = signIn;
+  useEffect(() => {
+    // Never auto-prompt over an error (e.g. a failed restore or sign-out): the user should see it first.
+    if (!preferences.autoSignIn || !client || !scope || transactionPending || walletChecking || busy || authenticated || error) return;
+    const key = `${scope}:${walletEpoch}`;
+    if (restoredKey !== key || autoAttempted.current.has(key)) return;
+    autoAttempted.current.add(key);
+    void signInRef.current();
+  }, [preferences.autoSignIn, client, scope, walletEpoch, restoredKey, transactionPending, walletChecking, busy, authenticated, error]);
+
   const value: RegistryContextValue = { configured: Boolean(client), authenticated: Boolean(authenticated), busy,
     requiresRegistrationSession: Boolean(authenticated?.application) || needsApplicationSession(account),
     frontendConfigurationError: client ? null : registryConfigurationError,

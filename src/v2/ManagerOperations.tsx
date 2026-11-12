@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useInvoiceCredits } from '../finance/credits';
 import { money, moneyInput } from '../finance/models';
 import { resolveV2Address } from './config';
 import { usePublicReport } from './usePublicReport';
@@ -23,14 +24,15 @@ export function ManagerOperations({ wallet, epoch, networkOk, showOverview = tru
   useEffect(() => { if (address && wallet && networkOk) void read(); }, [address, wallet, networkOk, read]);
   const events = useOptionalLedger()?.events ?? [];
   const finance = useFinance();
-  const ledger = finance.data ? ledgerFigures(finance.data, events, finance.now) : null;
+  const credits = useInvoiceCredits();
+  const ledger = finance.data ? ledgerFigures(finance.data, events, finance.now, credits) : null;
   return <ManagerOperationsView showOverview={showOverview} requestKinds={requestKinds} showRisk={showRisk} report={report} ledger={ledger} loading={loading || finance.loading} error={configurationError || error} canRead={Boolean(address && wallet && networkOk)} refresh={() => { void read(); void finance.refresh(); }} />;
 }
 
 export type LedgerFigures = ReturnType<typeof ledgerFigures>;
 /** Invoice-ledger NAV: available funds + financed invoice amounts + service fees + interest accrued to today. */
-export function ledgerFigures(data: { availableFunds: bigint; totalSupply: bigint; blockNumber: number; invoices: Parameters<typeof ledgerNav>[0]['invoices'] }, events: Parameters<typeof ledgerNav>[1], now: bigint) {
-  const nav = ledgerNav(data, events, now);
+export function ledgerFigures(data: { availableFunds: bigint; totalSupply: bigint; blockNumber: number; invoices: Parameters<typeof ledgerNav>[0]['invoices'] }, events: Parameters<typeof ledgerNav>[1], now: bigint, credits?: Parameters<typeof ledgerNav>[3]) {
+  const nav = ledgerNav(data, events, now, credits);
   return { ...nav, blockNumber: data.blockNumber, navPerRluCents: data.totalSupply > 0n ? (nav.navCents * 2n + data.totalSupply) / (data.totalSupply * 2n) : null };
 }
 

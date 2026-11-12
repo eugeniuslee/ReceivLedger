@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Funds } from './Funds';
 import { useLedger } from '../chain/LedgerContext';
@@ -33,48 +33,17 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-const subscription = () => within(screen.getByRole('heading', { name: 'Process a subscription' }).parentElement!);
-const redemption = () => within(screen.getByRole('heading', { name: 'Redemption check' }).parentElement!);
-
 describe('Funds tab', () => {
-  it('summarises RLU in issue, NAV per RLU, capital and remaining capacity', async () => {
+  it('summarises RLU in issue, NAV per RLU, fund NAV and capital, with no fund cap or manual forms', () => {
     render(<Funds />);
     const summary = within(screen.getByLabelText('Fund unit summary'));
     expect(summary.getByText('3,200 RLU')).toBeTruthy();
-    expect(summary.getByText('S$1.00')).toBeTruthy();
-    expect(await summary.findByText('S$6,800')).toBeTruthy();
-  });
-
-  it('issues RLU for an approved investor’s subscription and previews the result', async () => {
-    render(<Funds />);
-    fireEvent.change(subscription().getByLabelText('Investor wallet'), { target: { value: alice } });
-    fireEvent.change(subscription().getByLabelText('Subscription amount (S$)'), { target: { value: '500' } });
-    expect(subscription().getByText('500 RLU at S$1.00')).toBeTruthy();
-    expect(subscription().getByText('S$3,700')).toBeTruthy();
-    fireEvent.click(subscription().getByRole('button', { name: 'Issue RLU' }));
-    expect(await subscription().findByText('500 RLU issued to Alice Capital on Sepolia.')).toBeTruthy();
-    expect(ledger.issueFundUnits).toHaveBeenCalledWith(alice, 500n);
-    expect(refresh).toHaveBeenCalled();
-  });
-
-  it('refuses to issue RLU to a wallet that is not an approved investor', async () => {
-    render(<Funds />);
-    fireEvent.change(subscription().getByLabelText('Investor wallet'), { target: { value: stranger } });
-    fireEvent.change(subscription().getByLabelText('Subscription amount (S$)'), { target: { value: '100' } });
-    fireEvent.click(subscription().getByRole('button', { name: 'Issue RLU' }));
-    expect(await subscription().findByText(/not an approved investor/)).toBeTruthy();
-    expect(runTransaction).not.toHaveBeenCalled();
-  });
-
-  it('values a redemption at NAV and checks it against holdings and available funds', async () => {
-    render(<Funds />);
-    fireEvent.change(redemption().getByLabelText('Investor wallet'), { target: { value: alice } });
-    fireEvent.click(await redemption().findByRole('button', { name: 'Use full balance (1,100 RLU)' }));
-    expect(redemption().getByText('S$1,100.08')).toBeTruthy(); // 1,100 × S$3,200.25 / 3,200
-    expect(redemption().getByText(/covers this redemption/)).toBeTruthy();
-    fireEvent.change(redemption().getByLabelText('RLU to redeem'), { target: { value: '3000' } });
-    await waitFor(() => expect(redemption().getByText(/short by S\$50\.23/)).toBeTruthy());
-    expect(redemption().getByText(/less than requested/)).toBeTruthy();
+    expect(summary.getByText('S$1.0001')).toBeTruthy(); // S$3,200.25 / 3,200 RLU to 4 decimals
+    expect(summary.getByText('S$3,200.25')).toBeTruthy();
+    expect(summary.getByText('S$3,200')).toBeTruthy();
+    expect(screen.queryByText(/fund cap|Remaining capacity/)).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Process a subscription' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Redemption check' })).toBeNull();
   });
 
   it('lists recent RLU issuance newest first', () => {

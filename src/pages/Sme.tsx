@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { useLedger } from '../chain/LedgerContext';
 import { useRegistry } from '../registration/RegistryContext';
 import { useRegistrationAccess } from '../registration/access';
@@ -12,8 +13,8 @@ import { useFundNav } from '../finance/useFundNav';
 import { FinancingBreakdownList } from '../components/FinancialModels';
 import { InvoiceSummary } from '../components/InvoiceSummary';
 import { PrivateAccess } from '../components/PrivateAccess';
-import { MAX_PDF_BYTES, type PrivateDocument } from '../../supabase/functions/_shared/domain';
-import { userFacingError } from '../errors';
+import { ProofUpload } from '../components/ProofUpload';
+import type { PrivateDocument } from '../../supabase/functions/_shared/domain';
 
 const DAY = 86_400n;
 const sgtToday = (now: bigint) => new Date(Number(now) * 1000 + 8 * 3_600_000).toISOString().slice(0, 10);
@@ -22,9 +23,9 @@ const date = (seconds: bigint) => financialDate(seconds).replace(/,\s*\d{1,2}:\d
 /** The connected SME's own invoices, what it owes on each, and its limits under the financing rules. */
 function useSmeFinances() {
   const { account, snapshot, events, lifecycleEvents } = useLedger();
-  const { data, nav, now } = useFundNav();
+  const { data, nav, now, credits } = useFundNav();
   const own = snapshot?.role === 'sme' ? snapshot.invoices : [];
-  const rows = invoiceIncome(own, lifecycleEvents?.length ? lifecycleEvents : events ?? [], now);
+  const rows = invoiceIncome(own, lifecycleEvents?.length ? lifecycleEvents : events ?? [], now, credits);
   const financed = rows.filter(row => row.invoice.status === 'Financed');
   const owedCents = (row: InvoiceIncomeRow) => row.advanceCents + row.serviceFeeCents + row.interestCents;
   const limits = data && nav && account ? smeLimits({ sme: account, invoices: data.invoices, navCents: nav.navCents, availableFundsCents: data.availableFunds * 100n, asOf: Number(now) }) : null;
@@ -160,42 +161,17 @@ function OwedTable({ rows, owedCents, now }: { rows: InvoiceIncomeRow[]; owedCen
   return <section className="section-block"><h3>Funds owed</h3>
     {rows.length ? <div className="table-scroll"><table><thead><tr><th>Invoice</th><th>Cash advanced</th><th>Service fee</th><th>Interest to date</th><th>Owed today</th><th>Due</th><th>Payment proof</th></tr></thead>
       <tbody>{rows.map(row => { const id = row.invoice.id.toString(), proof = proofFor(row.invoice.id), state = maturityState(row.invoice, now); return <tr key={id}>
-        <td>#{id}<small className="document-meta">{row.invoice.payer} · {formatMoney(row.invoice.amount)}</small></td>
+        <td>#{id}{row.credit && <span className="status rejected credit-badge">{row.credit.stage === 'impaired' ? 'Impaired' : 'Written off'}</span>}<small className="document-meta">{row.invoice.payer} · {formatMoney(row.invoice.amount)}</small></td>
         <td>{money(row.advanceCents)}</td><td>{money(row.serviceFeeCents)}</td><td>{row.datesPending ? '—' : money(row.interestCents)}</td>
         <td><b>{money(owedCents(row))}</b></td>
         <td>{date(row.invoice.maturity)}<small className={`timing-label${state.overdue ? ' late' : ''}`}>{state.label}</small></td>
         <td>{proof && <><span className={`status ${proof.status === 'verified' ? 'approved' : proof.status === 'rejected' ? 'rejected' : 'submitted'}`}>{proof.status === 'pending' ? 'Under review' : proof.status === 'verified' ? 'Confirmed' : 'Rejected'}</span>{proof.review_note && <small className="document-meta">{proof.review_note}</small>}</>}
-          {(!proof || proof.status === 'rejected') && (open === id ? <ProofUpload invoiceId={id} onDone={() => { setOpen(null); void reload(); }} onCancel={() => setOpen(null)} />
+          {(!proof || proof.status === 'rejected') && (open === id ? <ProofUpload link={{ purpose: 'repayment', invoice_id: id }} onDone={() => { setOpen(null); void reload(); }} onCancel={() => setOpen(null)} />
             : <button className="btn small" onClick={() => setOpen(id)}>Upload proof</button>)}</td>
       </tr>; })}</tbody></table></div>
       : <p className="empty-state compact">You have no financed invoices to repay.</p>}
     <p className="footnote">Interest keeps accruing daily until the repayment is recorded or the due date, whichever comes first. Repaying early lowers the interest.</p>
   </section>;
-}
-
-function ProofUpload({ invoiceId, onDone, onCancel }: { invoiceId: string; onDone: () => void; onCancel: () => void }) {
-  const { request } = useRegistry();
-  const [file, setFile] = useState<File | null>(null);
-  const [consent, setConsent] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  async function upload(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError('');
-    if (!file || (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf'))) { setError('Choose a PDF file.'); return; }
-    if (file.size > MAX_PDF_BYTES) { setError('The PDF must be 5 MB or smaller.'); return; }
-    setBusy(true);
-    try {
-      const body = new FormData(); body.set('file', file); body.set('purpose', 'repayment'); body.set('invoice_id', invoiceId); body.set('demo_consent', 'true');
-      await request(body); onDone();
-    } catch (cause) { setError(userFacingError(cause)); }
-    finally { setBusy(false); }
-  }
-  return <form className="registration-form" onSubmit={event => void upload(event)}>
-    <label>Payment proof (PDF)<input type="file" accept="application/pdf,.pdf" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
-    <label className="consent-row"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} />This PDF contains fictional demonstration information.</label>
-    <span className="form-row"><button className="btn small" disabled={!file || !consent || busy}>{busy ? 'Uploading…' : 'Send proof'}</button><button type="button" className="btn o small" onClick={onCancel}>Cancel</button></span>
-    {error && <p className="inline-error" role="alert">{error}</p>}
-  </form>;
 }
 
 // ───────────────────────────── Cost calculator ─────────────────────────────

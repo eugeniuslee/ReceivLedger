@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateFinancing, endOfSgtDate, estimateSubmission, FINANCING_TERMS, financedInvoiceCharges, financingDays, fundNav, ledgerNav, termsAt, type FinancingTerms } from './financing';
+import { calculateFinancing, endOfSgtDate, estimateSubmission, FINANCING_TERMS, financedInvoiceCharges, financingDays, fundNav, invoiceIncome, ledgerNav, termsAt, type FinancingTerms } from './financing';
 import type { ChainEvent, ChainInvoice } from '../chain/chainLedger';
 
 const DAY = 86_400n;
@@ -129,5 +129,37 @@ describe('fund NAV', () => {
     expect(nav.missingFinancingDates).toBe(1);
     expect(nav.serviceFeesCents).toBe(10n);
     expect(nav.accruedInterestCents).toBe(0n);
+  });
+});
+
+describe('bad debt', () => {
+  const invoice = (id: number, amount: number, status: ChainInvoice['status'], maturity: bigint) => ({ id: BigInt(id), sme: '0x1', payer: 'p', amount: BigInt(amount), maturity, status, rejectionReason: '' }) as ChainInvoice;
+  const financed = (id: number, at: bigint) => ({ name: 'InvoiceFinanced', detail: '', invoiceId: BigInt(id), participants: [], timestamp: Number(at), blockNumber: 1, logIndex: 0, transactionHash: '0x' }) as unknown as ChainEvent;
+  // S$1,000 invoice financed 30 days ago, due in 30 days. Advance S$900, holdback S$100, fee S$1.00.
+  const base = { availableFunds: 9_000n, invoices: [invoice(1, 1_000, 'Financed', now + 30n * DAY)] };
+  const events = [financed(1, now - 30n * DAY)];
+
+  it('impairs an invoice: counts only the expected recovery of what is owed, and stops interest', () => {
+    const credits = new Map([['1', { stage: 'impaired' as const, expectedRecoveryBps: 4_000, recoveredCents: 0n, effectiveAt: now - 10n * DAY }]]);
+    const nav = ledgerNav(base, events, now, credits);
+    // Interest stops after 20 days: 900 × 5% × 20/365 = S$2.47. Owed = 900 + 1.00 + 2.47 = S$903.47; 40% recoverable = S$361.38.
+    expect(nav.accruedInterestCents).toBe(247n);
+    expect(nav.impairmentLossCents).toBe(90_347n - 36_138n);
+    // NAV = available S$9,000 + holdback S$100 (never paid out) + expected recovery S$361.38
+    expect(nav.navCents).toBe(900_000n + 10_000n + 36_138n);
+  });
+
+  it('writes an invoice off: counts only what was recovered', () => {
+    const credits = new Map([['1', { stage: 'written_off' as const, expectedRecoveryBps: null, recoveredCents: 5_000n, effectiveAt: now - 10n * DAY }]]);
+    const nav = ledgerNav(base, events, now, credits);
+    expect(nav.writtenOffLossCents).toBe(90_347n - 5_000n);
+    expect(nav.navCents).toBe(900_000n + 10_000n + 5_000n);
+    expect(invoiceIncome(base.invoices, events, now, credits)[0]).toMatchObject({ lossCents: 85_347n, navContributionCents: 15_000n });
+  });
+
+  it('ignores an old credit record once the invoice is repaid on-chain', () => {
+    const credits = new Map([['1', { stage: 'written_off' as const, expectedRecoveryBps: null, recoveredCents: 0n, effectiveAt: now }]]);
+    const nav = ledgerNav({ availableFunds: 10_000n, invoices: [invoice(1, 1_000, 'Repaid', now)] }, events, now, credits);
+    expect(nav.creditLossCents).toBe(0n);
   });
 });

@@ -17,9 +17,9 @@ export interface Application {
   created_at: string; submitted_at?: string; details?: RegistrationDetails;
 }
 export interface PrivateDocument {
-  id: string; owner_id: string; application_id: string | null; invoice_id: string | null;
-  purpose: 'kyc' | 'invoice' | 'repayment'; filename: string; storage_path: string; byte_size: number;
-  sha256: string; status: DocumentStatus; version: number; review_note: string | null; created_at: string;
+  id: string; owner_id: string; application_id: string | null; invoice_id: string | null; fund_request_id?: string | null;
+  purpose: 'kyc' | 'invoice' | 'repayment' | 'subscription'; filename: string; storage_path: string; byte_size: number;
+  sha256: string; status: DocumentStatus; version: number; review_note: string | null; created_at: string; reviewed_at?: string | null;
 }
 export interface WalletProfile { user_id: string; wallet: string }
 export interface RegistrySnapshot { profile: WalletProfile; application: Application | null; isManager: boolean }
@@ -60,13 +60,47 @@ export function registrationInput(value: unknown): RegistrationInput {
 export function assertApplicationReview(status: ApplicationStatus, version: number, expected: number, decision: unknown) {
   if (!Number.isSafeInteger(expected) || version !== expected) throw new RequestError('This record changed. Refresh before reviewing.');
   const allowed: Partial<Record<ApplicationStatus, string[]>> = {
-    pending: ['approved', 'rejected', 'needs_info'], approved: ['suspended', 'revoked'], suspended: ['needs_info', 'revoked'],
+    pending: ['approved', 'rejected', 'needs_info'], needs_info: ['approved', 'rejected', 'needs_info'], approved: ['suspended', 'revoked'], suspended: ['needs_info', 'revoked'],
   };
   if (typeof decision !== 'string' || !allowed[status]?.includes(decision)) throw new RequestError('This application transition is not permitted.');
 }
 export function assertReviewable(status: string, version: number, expected: number) {
   if (status !== 'pending') throw new RequestError('Only pending records can be reviewed.');
   if (!Number.isSafeInteger(expected) || version !== expected) throw new RequestError('This record changed. Refresh before reviewing.');
+}
+export type CreditStage = 'impaired' | 'written_off';
+/** Public credit record for a financed invoice whose SME cannot pay (no row = performing). */
+export interface InvoiceCredit {
+  invoice_id: string; stage: CreditStage; expected_recovery_bps: number | null;
+  recovered_cents: number | string; effective_at: string; version: number; updated_at?: string;
+}
+export function creditInput(value: unknown) {
+  const v = (value ?? {}) as Record<string, unknown>;
+  if (!['performing', 'impaired', 'written_off'].includes(String(v.stage))) throw new RequestError('Choose performing, impaired or written off.');
+  const note = typeof v.note === 'string' ? v.note.trim() : '';
+  if (note.length < 1 || note.length > 1000) throw new RequestError('Give a reason (up to 1,000 characters).');
+  const bps = v.stage === 'impaired' ? Number(v.expected_recovery_bps) : null;
+  if (bps !== null && (!Number.isInteger(bps) || bps < 0 || bps > 10_000)) throw new RequestError('Enter an expected recovery between 0% and 100%.');
+  const recovered = v.stage === 'written_off' ? String(v.recovered_cents ?? '') : null;
+  if (recovered !== null && !/^\d{1,15}$/.test(recovered)) throw new RequestError('Enter the amount recovered (0 or more).');
+  const version = v.version === null || v.version === undefined ? null : Number(v.version);
+  if (version !== null && (!Number.isInteger(version) || version < 0)) throw new RequestError('Refresh the invoice and try again.');
+  return { stage: String(v.stage), note, bps, recovered, version };
+}
+export type InvoiceReviewStatus = 'needs_info' | 'info_provided' | 'rejected';
+/** Off-chain decision on an invoice: the contract cannot reject one or ask for documents (no row = none). */
+export interface InvoiceReview {
+  invoice_id: string; sme_wallet: string; status: InvoiceReviewStatus; note: string; version: number;
+  decided_at: string; responded_at: string | null;
+}
+export function invoiceReviewInput(value: unknown) {
+  const v = (value ?? {}) as Record<string, unknown>;
+  if (!['needs_info', 'rejected', 'cleared'].includes(String(v.decision))) throw new RequestError('Choose reject or request more information.');
+  const note = typeof v.note === 'string' ? v.note.trim() : '';
+  if (v.decision !== 'cleared' && (note.length < 1 || note.length > 1000)) throw new RequestError('Tell the SME why (up to 1,000 characters).');
+  const version = v.version === null || v.version === undefined ? null : Number(v.version);
+  if (version !== null && (!Number.isInteger(version) || version < 0)) throw new RequestError('Refresh the invoice and try again.');
+  return { decision: String(v.decision), note, version };
 }
 export type FundRequestKind = 'subscription' | 'redemption';
 export type FundRequestStatus = 'pending' | 'approved' | 'completed' | 'rejected' | 'cancelled';

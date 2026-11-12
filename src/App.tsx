@@ -22,6 +22,7 @@ import { CostCalculator, Repayments } from './pages/Sme';
 import { NavBadge, NavIcon } from './components/icons';
 import { ReviewCountsProvider, useReviewCounts } from './chain/ReviewCounts';
 import { usePreferences } from './settings/preferences';
+import { NoticeBanner, useNotices } from './registration/notifications';
 import { Assets } from './pages/Assets';
 import { UnifiedWorkspace } from './v2/UnifiedWorkspace';
 import './v2/v2.css';
@@ -41,7 +42,11 @@ export function LedgerApp() {
   const [submittedWallet, setSubmittedWallet] = useState<string | null>(null);
   const { account, role, networkOk, walletAvailable, walletChecking, eventIndexComplete, connect, loading, transactionPending, error, eventsError, connectionNotice, walletEpoch = 0 } = useLedger();
   const { registeredName, application, requiresRegistrationSession, authenticated } = useRegistry();
-  const { badges } = useReviewCounts();
+  const { badges: reviewBadges } = useReviewCounts();
+  const notices = useNotices();
+  // Applicants, investors and SMEs see unread manager decisions as a count on Home.
+  // The manager's notices are already counted on the Invoices and Funds badges.
+  const badges = notices.unread.length && role !== 'manager' ? { ...reviewBadges, dashboard: (reviewBadges.dashboard ?? 0) + notices.unread.length } : reviewBadges;
   const { preferences } = usePreferences();
   useEffect(() => {
     const root = document.documentElement;
@@ -152,6 +157,7 @@ export function LedgerApp() {
       {role === 'inactiveInvestor' && <div className="notice warning"><b>Investor wallet is not currently approved.</b> Any RLU holdings remain in this wallet; transfers are unavailable.</div>}
       {role === 'provisional' && !eventIndexComplete && !eventsError && <div className="notice pending" role="status">Historical role evidence is still indexing. This wallet may be reclassified when the scan completes.</div>}
       {connectionNotice && <div className="notice info" role="status">{connectionNotice}</div>}
+      <NoticeBanner unread={notices.unread} dismiss={notices.dismiss} onNavigate={navigate} />
       {error && <div className="notice error" role="alert">{error}</div>}
       {eventsError && page !== 'history' && <div className="notice error" role="alert">Blockchain history could not be loaded: {eventsError}</div>}
       {transactionPending && <div className="notice pending" role="status">Waiting for MetaMask transaction confirmation. Keep this tab open.</div>}

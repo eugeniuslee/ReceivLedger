@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RegistryProvider, useRegistry } from './RegistryContext';
 import { registryRequest, readSupabaseConfiguration, RegistryRequestError } from './client';
 import { resetBrowserStorage } from '../test/browserStorage';
+import { DEFAULT_PREFERENCES, resetPreferencesCache, savePreferences } from '../settings/preferences';
 
 vi.mock('../chain/LedgerContext', () => ({ useLedger: () => wallet }));
 vi.mock('./client', async original => {
@@ -23,7 +24,9 @@ function Probe() { current = useRegistry(); return <><span>{current.registeredNa
 function snapshot(address = alice) { return { profile: { user_id: 'user', wallet: address }, isManager: false,
   application: { display_name: 'Fictional Alice', kind: 'investor', status: 'pending' } }; }
 beforeEach(() => {
-  resetBrowserStorage();
+  resetBrowserStorage(); resetPreferencesCache();
+  // These suites exercise manual sign-in and isolation; automatic sign-in has its own suite below.
+  savePreferences({ ...DEFAULT_PREFERENCES, autoSignIn: false });
   wallet = { account: alice, networkOk: true, signWalletMessage: vi.fn().mockResolvedValue('0x' + 'a'.repeat(130)) };
   signOut = vi.fn().mockResolvedValue({ error: null });
   getSession = vi.fn().mockResolvedValue({ data: { session: null }, error: null });
@@ -397,5 +400,51 @@ describe('refresh-safe private session validation',()=>{
     });
     expect(current.authenticated).toBe(false);expect(current.application).toBeNull();
     expect(current.error).toContain('authentication session changed');
+  });
+});
+
+describe('automatic sign-in after connecting', () => {
+  beforeEach(() => { savePreferences({ ...DEFAULT_PREFERENCES, autoSignIn: true }); });
+
+  it('asks for the signature once the wallet connects, with no button press', async () => {
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await waitFor(() => expect(current.authenticated).toBe(true));
+    expect(wallet.signWalletMessage).toHaveBeenCalledOnce();
+    expect(signIn).toHaveBeenCalledOnce();
+  });
+
+  it('reuses a valid saved session instead of asking again', async () => {
+    getSession.mockResolvedValue({ data: { session: { access_token: 'saved', user: { id: 'user' }, expires_at: Math.floor(Date.now() / 1000) + 3600 } }, error: null });
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await waitFor(() => expect(current.authenticated).toBe(true));
+    expect(wallet.signWalletMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not ask again after the user rejects the prompt', async () => {
+    wallet.signWalletMessage.mockRejectedValue({ code: 'ACTION_REJECTED' });
+    const view = render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await waitFor(() => expect(current.error).toBe('Sign-in cancelled. No changes were made.'));
+    view.rerender(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await act(async () => { await Promise.resolve(); });
+    expect(wallet.signWalletMessage).toHaveBeenCalledOnce();
+  });
+
+  it('asks the newly connected wallet to sign after a wallet switch, never reusing the old session', async () => {
+    const view = render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await waitFor(() => expect(current.authenticated).toBe(true));
+    vi.mocked(registryRequest).mockImplementation(async (_client, _token, input) => (input as Record<string, unknown>).action === 'bootstrap' ? snapshot(bob) : []);
+    wallet = { ...wallet, account: bob };
+    view.rerender(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await waitFor(() => expect(wallet.signWalletMessage).toHaveBeenCalledTimes(2));
+    expect(String(wallet.signWalletMessage.mock.calls[1][0]).toLowerCase()).toContain(bob.toLowerCase());
+    expect(signOut).toHaveBeenCalled();
+  });
+
+  it('does nothing when turned off in Settings', async () => {
+    savePreferences({ ...DEFAULT_PREFERENCES, autoSignIn: false });
+    render(<RegistryProvider client={client}><Probe /></RegistryProvider>);
+    await waitFor(() => expect(getSession).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+    expect(wallet.signWalletMessage).not.toHaveBeenCalled();
   });
 });

@@ -34,6 +34,29 @@ function request(body: unknown, token = 'session', origin = 'https://receiveledg
   return new Request('https://edge.test/registry', { method: 'POST', headers: { origin, ...(token ? { Authorization: `Bearer ${token}` } : {}), 'content-type': 'application/json' }, body: JSON.stringify(body) });
 }
 describe('Edge Function authentication and authorization boundary', () => {
+  it('lets only the manager record bad debt on an invoice that exists on-chain', async () => {
+    const ok = await handler()(request({ action: 'set_invoice_credit', invoice_id: '6', stage: 'written_off', recovered_cents: '2500', note: ' Liquidated ', version: 1 }));
+    expect(ok.status).toBe(200);
+    expect(chain.invoiceOwner).toHaveBeenCalledWith('6');
+    expect(review).toHaveBeenCalledWith('rl_set_invoice_credit', { p_actor: 'verified-manager-id', p_invoice: '6', p_stage: 'written_off', p_expected_bps: null, p_recovered: '2500', p_note: 'Liquidated', p_version: 1 });
+    review.mockClear();
+    expect((await handler()(request({ action: 'set_invoice_credit', invoice_id: '6', stage: 'impaired', expected_recovery_bps: 12_000, note: 'x' }))).status).toBe(400);
+    expect((await handler()(request({ action: 'set_invoice_credit', invoice_id: '6', stage: 'impaired', expected_recovery_bps: 5_000, note: '' }))).status).toBe(400);
+    actor = alice; verifiedWallet = alice;
+    expect((await handler()(request({ action: 'set_invoice_credit', invoice_id: '6', stage: 'impaired', expected_recovery_bps: 5_000, note: 'x' }))).status).toBe(400);
+    expect(review).not.toHaveBeenCalled();
+  });
+  it('lets only the manager reject an invoice or ask its SME for more information, off-chain', async () => {
+    const ok = await handler()(request({ action: 'review_invoice', invoice_id: '8', decision: 'needs_info', note: ' Send the purchase order ', version: null }));
+    expect(ok.status).toBe(200);
+    expect(review).toHaveBeenCalledWith('rl_set_invoice_review', { p_actor: 'verified-manager-id', p_invoice: '8', p_sme: alice, p_status: 'needs_info', p_note: 'Send the purchase order', p_version: null });
+    review.mockClear();
+    expect((await handler()(request({ action: 'review_invoice', invoice_id: '8', decision: 'rejected', note: '' }))).status).toBe(400);
+    expect((await handler()(request({ action: 'review_invoice', invoice_id: '8', decision: 'approved', note: 'x' }))).status).toBe(400);
+    actor = alice; verifiedWallet = alice;
+    expect((await handler()(request({ action: 'review_invoice', invoice_id: '8', decision: 'rejected', note: 'x' }))).status).toBe(400);
+    expect(review).not.toHaveBeenCalled();
+  });
   it('creates a fund request only for an on-chain approved investor, for themselves', async () => {
     actor = alice; verifiedWallet = alice;
     const response = await handler()(request({ action: 'request_fund', kind: 'subscription', amount: '250', user_id: 'someone-else' }));
@@ -134,6 +157,14 @@ describe('Edge Function authentication and authorization boundary', () => {
     const pdf = await PDFDocument.create(); pdf.addPage();
     const form = new FormData(); form.set('file', new File([await pdf.save()], 'proof.pdf', { type: 'application/pdf' }));
     form.set('purpose', 'repayment'); form.set('invoice_id', '1'); form.set('demo_consent', 'true');
+    const response = await handler()(new Request('https://edge.test/registry', { method: 'POST', headers: { origin: 'https://receiveledger.test', authorization: 'Bearer session' }, body: form }));
+    expect(response.status).toBe(400); expect(upload).not.toHaveBeenCalled();
+    expect((await response.json()).error).toContain('another wallet');
+  });
+  it('rejects subscription payment proofs for another investor’s request before storage writes', async () => {
+    const pdf = await PDFDocument.create(); pdf.addPage();
+    const form = new FormData(); form.set('file', new File([await pdf.save()], 'pay.pdf', { type: 'application/pdf' }));
+    form.set('purpose', 'subscription'); form.set('fund_request_id', appId); form.set('demo_consent', 'true');
     const response = await handler()(new Request('https://edge.test/registry', { method: 'POST', headers: { origin: 'https://receiveledger.test', authorization: 'Bearer session' }, body: form }));
     expect(response.status).toBe(400); expect(upload).not.toHaveBeenCalled();
     expect((await response.json()).error).toContain('another wallet');

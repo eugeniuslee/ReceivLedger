@@ -12,7 +12,7 @@ import { registrationAccess } from './access';
 import { resetBrowserStorage } from '../test/browserStorage';
 import type { Application, ApplicationStatus } from '../../supabase/functions/_shared/domain';
 
-vi.mock('../chain/LedgerContext', () => ({ useLedger: vi.fn(), LedgerProvider: ({ children }: { children: React.ReactNode }) => children }));
+vi.mock('../chain/LedgerContext', () => ({ useLedger: vi.fn(), useOptionalLedger: () => null, LedgerProvider: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock('./RegistryContext', () => ({ useRegistry: vi.fn(), RegistryProvider: ({ children }: { children: React.ReactNode }) => children }));
 let wallet: ReturnType<typeof useLedger>;
 let registry: ReturnType<typeof useRegistry>;

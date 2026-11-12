@@ -7,11 +7,9 @@ import { WalletName } from '../components/WalletName';
 import { useFinance } from '../finance/FinanceContext';
 import { maturityState } from '../finance/models';
 import { financialDate } from '../finance/presentation';
-import { InvoiceAssessment } from '../components/FinancialModels';
 import { InvoiceTimeline } from '../components/InvoiceTimeline';
 import { useRegistrationAccess } from '../registration/access';
 import { PrivateAccess } from '../components/PrivateAccess';
-import { DocumentsPanel } from './Documents';
 import { invoiceReceiptOutcome, submittedInvoiceId } from '../chain/invoiceReceipt';
 import { useRegistry } from '../registration/RegistryContext';
 import { endOfSgtDate, estimateSubmission, financedInvoiceCharges, lifecycleTimes } from '../finance/financing';
@@ -19,6 +17,12 @@ import type { ChainInvoice } from '../chain/chainLedger';
 import { FinancingBreakdownList } from '../components/FinancialModels';
 import { EligibilityPanel } from './Sme';
 import { MAX_PDF_BYTES } from '../../supabase/functions/_shared/domain';
+import { CONFIRM_WORD, RuleWarning, useRuleCheck } from '../components/RuleGate';
+import { CreditBadge, CreditPanel } from '../components/CreditPanel';
+import { InvoiceAtAGlance, InvoiceDecisionPanel, InvoiceMoreDetails, invoicesWithPendingProof, RepaymentProofPanel, RiskChecks, SmeInvoiceReviewPanel } from '../components/InvoiceReview';
+import { activeReview, REVIEW_LABELS, useInvoiceReviews } from '../registration/invoiceReviews';
+import { useDocuments } from '../components/ProofUpload';
+import { compactAddress } from '../chain/presentation';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const sgtToday = (now: bigint) => new Date(Number(now) * 1000 + 8 * 3_600_000).toISOString().slice(0, 10);
@@ -40,15 +44,6 @@ function FinancedCharges({ invoice }: { invoice: ChainInvoice }) {
   </details>;
 }
 
-function InvoiceDocuments({ invoiceId }: { invoiceId: string }) {
-  const [open, setOpen] = useState(false);
-  return <section className="section-block"><h3>Private supporting documents</h3>
-    <p className="support-copy">On-chain invoice details and history above are public. Supporting PDFs require a separate private wallet session.</p>
-    <button className="btn o small" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Hide private documents' : 'View private documents'}</button>
-    {open && <PrivateAccess compact><DocumentsPanel invoiceId={invoiceId} /></PrivateAccess>}
-  </section>;
-}
-
 export function Invoices({ mode = 'workspace' }: { mode?: 'workspace' | 'list' | 'submit' }) {
   const { account, role, networkOk, snapshot, loading, transactionPending, ledger, runTransaction } = useLedger();
   const { now } = useFinance();
@@ -68,10 +63,22 @@ export function Invoices({ mode = 'workspace' }: { mode?: 'workspace' | 'list' |
   const [payerExposure, setPayerExposure] = useState<{ payer: string; exposure: bigint; maximum: bigint } | null>(null);
   const [exposureLoading, setExposureLoading] = useState(false);
   const [exposureError, setExposureError] = useState('');
+  // Off-chain decisions (rejected / more information requested) on invoices still Submitted on-chain.
+  const { reviews } = useInvoiceReviews();
   const roleInvoices = snapshot && (snapshot.role === 'manager' || snapshot.role === 'sme') ? snapshot.invoices : [];
-  const invoices = useMemo(() => roleInvoices.filter(invoice => filter === 'All' || (filter === 'Overdue' ? maturityState(invoice, now).overdue : invoice.status === filter)).slice().reverse(), [roleInvoices, filter, now]);
+  const shownStatus = (invoice: ChainInvoice) => activeReview(reviews, invoice)?.status === 'rejected' ? 'Rejected' : invoice.status;
+  const invoices = useMemo(() => roleInvoices.filter(invoice => filter === 'All' || (filter === 'Overdue' ? maturityState(invoice, now).overdue : shownStatus(invoice) === filter)).slice().reverse(), [roleInvoices, filter, now, reviews]);
   const selectedInvoice = selectedId === null ? undefined : roleInvoices.find(invoice => invoice.id === selectedId);
   const selectedAction = selectedInvoice ? invoiceActionForStatus(selectedInvoice.status) : null;
+  const selectedReview = selectedInvoice ? activeReview(reviews, selectedInvoice) : undefined;
+  // Financing rules are warnings, not contract rules: breaking one needs the manager to type CONFIRM.
+  const ruleCheck = useRuleCheck(role === 'manager' && (selectedAction === 'approve' || selectedAction === 'finance') ? selectedInvoice : undefined);
+  const [confirmText, setConfirmText] = useState('');
+  useEffect(() => { setConfirmText(''); }, [selectedId, selectedAction]);
+  const rulesConfirmed = !ruleCheck.breaches.length || confirmText.trim() === CONFIRM_WORD;
+  // Manager: invoices where the SME has uploaded a repayment proof that still needs checking.
+  const { documents: privateDocuments } = useDocuments();
+  const proofsToReview = role === 'manager' ? invoicesWithPendingProof(privateDocuments) : new Set<string>();
 
   useEffect(() => {
     if (!selectedInvoice || role !== 'manager' || snapshot?.role !== 'manager' || !ledger) {
@@ -202,13 +209,21 @@ export function Invoices({ mode = 'workspace' }: { mode?: 'workspace' | 'list' |
       </div>
       <div className="status-breakdown invoice-breakdown">{['Submitted', 'Approved', 'Financed', 'Overdue', 'Repaid'].map(status => <div key={status}><span>{status}{status === 'Overdue' ? ' (within Financed)' : ''}</span><strong>{roleInvoices.filter(row => status === 'Overdue' ? maturityState(row, now).overdue : row.status === status).length}</strong></div>)}</div>
       <p className="support-copy">Expected payer date uses the invoice's stored maturity, displayed in Singapore time. Overdue applies only to still-Financed invoices; passing maturity never records a repayment. Countdown uses the device clock.</p>
-      {invoices.length ? <div className="table-scroll"><table><thead><tr><th>ID</th><th>SME wallet</th><th>Payer</th><th>Amount</th><th>Expected payer date (SGT)</th><th>Status / timing</th><th>Rejection reason</th><th>Action</th></tr></thead>
+      {invoices.length ? <div className="table-scroll"><table>{role === 'manager' ? <><thead><tr><th>Invoice</th><th>SME name</th><th>SME wallet</th><th>Latest pay date (SGT)</th><th>Status / timing</th><th>Action</th></tr></thead>
+        <tbody>{invoices.map(invoice => <tr key={invoice.id.toString()}>
+          <td><button className="invoice-id" onClick={() => { setSelectedId(invoice.id); setFormError(''); }}>#{invoice.id.toString()}</button></td>
+          <td>{registry.displayName(invoice.sme) ?? <span className="sub">Name unavailable</span>}</td>
+          <td><span className="mono" title={invoice.sme}>{compactAddress(invoice.sme)}</span></td>
+          <td>{financialDate(invoice.maturity)}</td>
+          <td><span className={`status ${invoice.status.toLowerCase()}`}>{invoice.status}</span><CreditBadge invoiceId={invoice.id} />{proofsToReview.has(invoice.id.toString()) && <span className="status submitted proof-flag">Payment proof to review</span>}{invoice.status === 'Submitted' && <span className="status submitted proof-flag">{activeReview(reviews, invoice) ? REVIEW_LABELS[activeReview(reviews, invoice)!.status] : 'Needs approval'}</span>}{invoice.status === 'Approved' && invoice.maturity > now && <span className="status submitted proof-flag">Ready to finance</span>}<small className={`timing-label${maturityState(invoice, now).overdue ? ' late' : ''}`}>{maturityState(invoice, now).label}</small></td>
+          <td><button className="btn small outline" onClick={() => { setSelectedId(invoice.id); setFormError(''); }}>Review</button></td>
+        </tr>)}</tbody></> : <><thead><tr><th>ID</th><th>SME wallet</th><th>Payer</th><th>Amount</th><th>Expected payer date (SGT)</th><th>Status / timing</th><th>Rejection reason</th><th>Action</th></tr></thead>
         <tbody>{invoices.map(invoice => <tr key={invoice.id.toString()}>
           <td><button className="invoice-id" onClick={() => { setSelectedId(invoice.id); setFormError(''); }}>#{invoice.id.toString()}</button></td><td><WalletName address={invoice.sme} /></td><td>{invoice.payer}</td><td>{formatMoney(invoice.amount)}</td><td>{financialDate(invoice.maturity)}</td>
-          <td><span className={`status ${invoice.status.toLowerCase()}`}>{invoice.status}</span><small className={`timing-label${maturityState(invoice, now).overdue ? ' late' : ''}`}>{maturityState(invoice, now).label}</small></td><td>{invoice.rejectionReason || '—'}</td>
-          <td><button className="btn small outline" onClick={() => { setSelectedId(invoice.id); setFormError(''); }}>{role === 'manager' ? 'Review' : 'View details'}</button>
+          <td><span className={`status ${invoice.status.toLowerCase()}`}>{invoice.status}</span><CreditBadge invoiceId={invoice.id} />{activeReview(reviews, invoice) && <span className={`status ${activeReview(reviews, invoice)!.status === 'rejected' ? 'rejected' : 'submitted'} proof-flag`}>{REVIEW_LABELS[activeReview(reviews, invoice)!.status]}</span>}<small className={`timing-label${maturityState(invoice, now).overdue ? ' late' : ''}`}>{maturityState(invoice, now).label}</small></td><td>{invoice.rejectionReason || (activeReview(reviews, invoice) && activeReview(reviews, invoice)!.status !== 'info_provided' ? activeReview(reviews, invoice)!.note : '—')}</td>
+          <td><button className="btn small outline" onClick={() => { setSelectedId(invoice.id); setFormError(''); }}>View details</button>
           </td>
-        </tr>)}</tbody>
+        </tr>)}</tbody></>}
       </table></div> : <div className="empty-state compact">{role === 'sme' ? 'No invoices submitted by this wallet were found in contract mappings.' : role === 'provisional' ? 'No invoices are currently mapped to this wallet.' : 'No invoices match this status.'}</div>}
       {formError && <p className="inline-error" role="alert">{formError}</p>}
       <p className="footnote">Finance and repayment update contract accounting only. No SGD or ETH is transferred. A finance attempt may succeed as a transaction while the contract changes the invoice to Rejected; the row will show the recorded reason.</p>
@@ -216,35 +231,27 @@ export function Invoices({ mode = 'workspace' }: { mode?: 'workspace' | 'list' |
     {invoiceDataAvailable && (role === 'manager' || role === 'sme') && selectedInvoice && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setSelectedId(null); }}>
       <section className="invoice-modal" role="dialog" aria-modal="true" aria-labelledby="invoice-modal-title">
         <div className="section-heading"><div><span className="eyebrow">On-chain invoice record</span><h2 id="invoice-modal-title">Invoice #{selectedInvoice.id.toString()}</h2></div><button className="btn outline" onClick={() => setSelectedId(null)} aria-label="Close invoice details">Close</button></div>
-        <dl className="detail-list">
-          <div><dt>Invoice ID</dt><dd>#{selectedInvoice.id.toString()}</dd></div>
-          <div><dt>SME wallet</dt><dd><WalletName address={selectedInvoice.sme} full /></dd></div>
-          <div><dt>Payer name</dt><dd>{selectedInvoice.payer}</dd></div>
-          <div><dt>Invoice amount</dt><dd>{formatMoney(selectedInvoice.amount)}</dd></div>
-          <div><dt>Expected payer date</dt><dd>{financialDate(selectedInvoice.maturity)} SGT</dd></div>
-          <div><dt>Repayment timing</dt><dd>{maturityState(selectedInvoice, now).label}</dd></div>
-          <div><dt>Current status</dt><dd><span className={`status ${selectedInvoice.status.toLowerCase()}`}>{selectedInvoice.status}</span></dd></div>
-          <div><dt>Rejection reason</dt><dd>{selectedInvoice.rejectionReason || '—'}</dd></div>
-          {snapshot?.role === 'manager' && <><div><dt>Available funds</dt><dd>{formatMoney(snapshot.availableFunds)}</dd></div>
-          <div><dt>Payer exposure</dt><dd>{exposureLoading ? 'Loading…' : payerExposure?.payer === selectedInvoice.payer ? `${formatMoney(payerExposure.exposure)} of ${formatMoney(payerExposure.maximum)}` : '—'}</dd></div></>}
-        </dl>
-        {snapshot?.role === 'manager' && payerExposure?.payer === selectedInvoice.payer && <p className={`notice ${payerExposure.exposure + selectedInvoice.amount > payerExposure.maximum ? 'warning' : 'info'}`}>
-          The payer cap is 10% of total fund size, rounded down: {formatMoney(payerExposure.maximum)}. Existing exposure {formatMoney(payerExposure.exposure)} + full invoice {formatMoney(selectedInvoice.amount)} = {formatMoney(payerExposure.exposure + selectedInvoice.amount)}.
-          {payerExposure.exposure + selectedInvoice.amount > payerExposure.maximum ? ' This exceeds the payer cap; financing would record Rejected under these observed limits, without deducting funds.' : ' This passes the observed payer cap; available funds and execution-time maturity checks must also pass.'}
-        </p>}
-        {(selectedInvoice.status === 'Financed' || selectedInvoice.status === 'Repaid') && <FinancedCharges invoice={selectedInvoice} />}
-        <InvoiceTimeline invoiceId={selectedInvoice.id} />
-        <InvoiceDocuments key={`documents:${selectedInvoice.id}`} invoiceId={selectedInvoice.id.toString()} />
-        {(selectedInvoice.status === 'Submitted' || selectedInvoice.status === 'Approved') && <InvoiceAssessment key={`assessment:${selectedInvoice.id}`} invoice={selectedInvoice} />}
+        <InvoiceAtAGlance invoice={selectedInvoice} />
+        {role === 'manager' && (selectedAction === 'approve' || selectedAction === 'finance') && <RiskChecks invoice={selectedInvoice} guidelines={ruleCheck.guidelines} payerExposure={payerExposure?.payer === selectedInvoice.payer ? payerExposure : null} />}
+        {role === 'sme' && activeReview(reviews, selectedInvoice) && <PrivateAccess compact><SmeInvoiceReviewPanel invoice={selectedInvoice} review={activeReview(reviews, selectedInvoice)!} /></PrivateAccess>}
+        {role === 'manager' && selectedInvoice.status === 'Financed' && <PrivateAccess compact message="Verify your fund manager wallet to review the SME's repayment proof."><RepaymentProofPanel invoice={selectedInvoice} busy={transactionPending} onRecordRepayment={() => act('repay', selectedInvoice.id, ledger => ledger.recordRepayment(selectedInvoice.id))} /></PrivateAccess>}
         {exposureError && <p className="inline-error" role="alert">Payer exposure unavailable: {exposureError}</p>}
         {formError && <p className="inline-error" role="alert">{formError}</p>}
+        {role === 'manager' && (selectedAction === 'finance' || (selectedAction === 'approve' && selectedReview?.status !== 'rejected')) && <RuleWarning breaches={ruleCheck.breaches} value={confirmText} onChange={setConfirmText} />}
         {role === 'manager' && <div className="modal-actions">
-          {selectedAction === 'approve' && <button className="btn" disabled={transactionPending} onClick={() => void act('approve', selectedInvoice.id, ledger => ledger.approveInvoice(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : 'Approve invoice'}</button>}
-          {selectedAction === 'finance' && <button className="btn" disabled={transactionPending} onClick={() => void act('finance', selectedInvoice.id, ledger => ledger.financeInvoice(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : `Finance full ${formatMoney(selectedInvoice.amount)} on-chain`}</button>}
+          {selectedAction === 'approve' && selectedReview?.status !== 'rejected' && <button className="btn" disabled={transactionPending || !rulesConfirmed} onClick={() => void act('approve', selectedInvoice.id, ledger => ledger.approveInvoice(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : 'Approve invoice'}</button>}
+          {selectedAction === 'finance' && <button className="btn" disabled={transactionPending || !rulesConfirmed} onClick={() => void act('finance', selectedInvoice.id, ledger => ledger.financeInvoice(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : `Finance full ${formatMoney(selectedInvoice.amount)} on-chain`}</button>}
           {selectedAction === 'repay' && <button className="btn" disabled={transactionPending} onClick={() => void act('repay', selectedInvoice.id, ledger => ledger.recordRepayment(selectedInvoice.id))}>{transactionPending ? 'Waiting for confirmation…' : 'Record repayment'}</button>}
           {!selectedAction && <span className="sub">Read-only invoice state</span>}
         </div>}
-        <p className="footnote">Submitted → Approved → Financed → Repaid. Approval does not reserve or deduct funds. Financing commits the full invoice face value; repayment restores that principal. The contract stores no PDF. Financing changes contract accounting and does not transfer SGD or ETH.</p>
+        {role === 'manager' && selectedInvoice.status === 'Submitted' && <PrivateAccess compact message="Verify your fund manager wallet to reject the invoice or ask the SME for more information."><InvoiceDecisionPanel invoice={selectedInvoice} review={selectedReview} /></PrivateAccess>}
+        <details className="help-item invoice-more"><summary>More details</summary>
+        <InvoiceMoreDetails invoice={selectedInvoice} manager={role === 'manager'} guidelines={ruleCheck.guidelines} />
+        {(selectedInvoice.status === 'Financed' || selectedInvoice.status === 'Repaid') && <FinancedCharges invoice={selectedInvoice} />}
+        {role === 'manager' && selectedInvoice.status === 'Financed' && <PrivateAccess compact message="Verify your fund manager wallet to record bad debt on this invoice."><CreditPanel invoice={selectedInvoice} /></PrivateAccess>}
+        <InvoiceTimeline invoiceId={selectedInvoice.id} />
+        {selectedInvoice.rejectionReason && <p className="notice warning">Rejected on-chain: {selectedInvoice.rejectionReason}</p>}
+        </details>
       </section>
     </div>}
   </>;

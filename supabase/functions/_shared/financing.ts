@@ -167,30 +167,80 @@ export function financedInvoiceCharges(invoice: FinancedInvoiceInput, asOf: bigi
  * principal on repayment, so the unpaid holdback is still fund cash and realised
  * income is not in the on-chain available funds; both are added here.
  */
-export function fundNav(input: { availableFundsCents: bigint; invoices: { id: bigint; invoiceCents: bigint; dueDate: bigint; financed: boolean; repaid?: boolean }[]; financedAt: ReadonlyMap<string, bigint>; repaidAt?: ReadonlyMap<string, bigint>; asOf: bigint }) {
+/** Bad-debt status of a financed invoice. effectiveAt = when it was first impaired (interest stops then). */
+export interface CreditStatus {
+  stage: 'impaired' | 'written_off';
+  /** impaired: share of what is owed expected back, in basis points. */
+  expectedRecoveryBps: number | null;
+  /** written_off: cash actually recovered so far. */
+  recoveredCents: bigint;
+  effectiveAt: bigint;
+  /** Record version, used to refuse outdated updates. */
+  version?: number;
+}
+
+/**
+ * What a problem invoice is worth to the fund, and the loss against what was owed.
+ * Owed = cash advanced + service fee + interest up to the impairment date. The holdback never
+ * left the fund, so it is not lost; only the owed amount is replaced by what can be recovered.
+ */
+export function creditLoss(owedCents: bigint, credit: CreditStatus) {
+  const recoverableCents = credit.stage === 'impaired' ? owedCents * BigInt(credit.expectedRecoveryBps ?? 0) / 10_000n : credit.recoveredCents;
+  const lossCents = owedCents > recoverableCents ? owedCents - recoverableCents : 0n;
+  return { recoverableCents, lossCents };
+}
+
+/**
+ * Fund NAV as of `asOf` = fund capital + all income earned − bad-debt losses:
+ *   available funds
+ * + for each financed invoice: invoice amount + service fee + interest accrued to date
+ * + for each repaid invoice: service fee + interest actually earned (realised income)
+ * − for each impaired / written-off invoice: what is owed that is not expected to be recovered.
+ * The ledger commits the full invoice amount on financing and restores only that
+ * principal on repayment, so the unpaid holdback is still fund cash and realised
+ * income is not in the on-chain available funds; both are added here.
+ */
+export function fundNav(input: { availableFundsCents: bigint; invoices: { id: bigint; invoiceCents: bigint; dueDate: bigint; financed: boolean; repaid?: boolean }[]; financedAt: ReadonlyMap<string, bigint>; repaidAt?: ReadonlyMap<string, bigint>; credits?: ReadonlyMap<string, CreditStatus>; asOf: bigint }) {
   let outstandingCents = 0n, serviceFeesCents = 0n, accruedInterestCents = 0n, realisedFeesCents = 0n, realisedInterestCents = 0n, missingFinancingDates = 0;
+  let impairmentLossCents = 0n, writtenOffLossCents = 0n, problemInvoices = 0;
   for (const invoice of input.invoices) {
     if (!invoice.financed && !invoice.repaid) continue;
     const key = invoice.id.toString();
     const financedAt = input.financedAt.get(key);
     const repaidAt = invoice.repaid ? input.repaidAt?.get(key) : undefined;
+    // A repaid invoice was paid; any earlier credit record no longer applies.
+    const credit = invoice.financed ? input.credits?.get(key) : undefined;
     if (invoice.financed) outstandingCents += invoice.invoiceCents;
     if (financedAt === undefined || (invoice.repaid && repaidAt === undefined)) {
       // Lifecycle dates not indexed yet: the fee is still known; interest is omitted and reported.
       missingFinancingDates++;
-      const fee = calculateFinancing(invoice.invoiceCents, 0n, termsAt(financedAt ?? input.asOf)).serviceFeeCents;
-      if (invoice.repaid) realisedFeesCents += fee; else serviceFeesCents += fee;
+      const charges = calculateFinancing(invoice.invoiceCents, 0n, termsAt(financedAt ?? input.asOf));
+      if (invoice.repaid) realisedFeesCents += charges.serviceFeeCents; else serviceFeesCents += charges.serviceFeeCents;
+      if (credit) {
+        problemInvoices++;
+        const { lossCents } = creditLoss(charges.advanceCents + charges.serviceFeeCents, credit);
+        if (credit.stage === 'impaired') impairmentLossCents += lossCents; else writtenOffLossCents += lossCents;
+      }
       continue;
     }
-    const charges = financedInvoiceCharges({ invoiceCents: invoice.invoiceCents, dueDate: invoice.dueDate, financedAt, repaidAt: repaidAt ?? null }, input.asOf);
+    // Interest on a problem invoice stops on the date it was first impaired.
+    const asOf = credit && credit.effectiveAt < input.asOf ? credit.effectiveAt : input.asOf;
+    const charges = financedInvoiceCharges({ invoiceCents: invoice.invoiceCents, dueDate: invoice.dueDate, financedAt, repaidAt: repaidAt ?? null }, asOf);
     if (invoice.repaid) { realisedFeesCents += charges.serviceFeeCents; realisedInterestCents += charges.interestCents; }
     else { serviceFeesCents += charges.serviceFeeCents; accruedInterestCents += charges.interestCents; }
+    if (credit) {
+      problemInvoices++;
+      const { lossCents } = creditLoss(charges.advanceCents + charges.serviceFeeCents + charges.interestCents, credit);
+      if (credit.stage === 'impaired') impairmentLossCents += lossCents; else writtenOffLossCents += lossCents;
+    }
   }
   const realisedIncomeCents = realisedFeesCents + realisedInterestCents;
+  const creditLossCents = impairmentLossCents + writtenOffLossCents;
   return {
     availableFundsCents: input.availableFundsCents, outstandingCents, serviceFeesCents, accruedInterestCents,
     realisedFeesCents, realisedInterestCents, realisedIncomeCents, missingFinancingDates,
+    impairmentLossCents, writtenOffLossCents, creditLossCents, problemInvoices,
     totalIncomeCents: serviceFeesCents + accruedInterestCents + realisedIncomeCents,
-    navCents: input.availableFundsCents + outstandingCents + serviceFeesCents + accruedInterestCents + realisedIncomeCents,
+    navCents: input.availableFundsCents + outstandingCents + serviceFeesCents + accruedInterestCents + realisedIncomeCents - creditLossCents,
   };
 }

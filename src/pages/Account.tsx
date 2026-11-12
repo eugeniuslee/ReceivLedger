@@ -142,6 +142,7 @@ export function Settings({ rememberPage, onRememberPage }: { rememberPage: boole
         <div><dt>Network</dt><dd>{!account ? '—' : networkOk ? 'Sepolia' : 'Wrong network: switch to Sepolia in MetaMask'}</dd></div>
         <div><dt>Private session</dt><dd>{!configured ? 'Not configured' : authenticated ? 'Signed in with this wallet' : 'Not signed in'}</dd></div>
       </dl>
+      <label className="setting-row"><span><strong>Sign in automatically when I connect</strong><small>MetaMask asks for the free sign-in signature right after you connect. You stay signed in on this browser until you sign out or switch wallet.</small></span><input type="checkbox" checked={preferences.autoSignIn} onChange={event => saved(update({ autoSignIn: event.target.checked }))} /></label>
       <div className="form-row">
         <button className="btn o" disabled={!walletAvailable || walletChecking || transactionPending} onClick={() => { if (account) { void disconnect(); void signOut(); } else void connect(); }}>{account ? 'Disconnect wallet' : 'Connect wallet'}</button>
         {authenticated && <button className="btn o" onClick={() => void signOut()}>Sign out of private session</button>}

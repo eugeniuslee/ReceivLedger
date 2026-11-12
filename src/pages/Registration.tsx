@@ -9,6 +9,7 @@ import { userFacingError } from '../errors';
 import { SmeCapacity, SmeFinancingAssessment } from './Reports';
 import { PrivateAccess } from '../components/PrivateAccess';
 import { DocumentsPanel } from './Documents';
+import { applicationNoticeKey, useNoticeDismissed } from '../registration/notifications';
 
 const statusLabels = { pending: 'Pending Review', needs_info: 'Additional information requested', approved: 'Approved', rejected: 'Rejected', suspended: 'Suspended', revoked: 'Revoked (off-chain)' };
 
@@ -69,6 +70,9 @@ export function RegistrationSummary({ onNavigate }: { onNavigate: (page: PageId)
   const { role } = useLedger();
   const { application, authenticated, requiresRegistrationSession } = useRegistry();
   const access = registrationAccess(role, application, authenticated, requiresRegistrationSession);
+  // Once the approval notice is dismissed the box has nothing new to say; the application stays under My Profile.
+  const approvalDismissed = useNoticeDismissed(application?.status === 'approved' ? applicationNoticeKey(application) : null, application?.reviewed_at);
+  if (approvalDismissed) return null;
   if (role === 'manager') return null; // Managers reach applications from Home's "Needs your review" box.
   return <section className="section-block"><div className="section-heading"><h2>{application?.display_name ?? 'Your ReceivLedger profile'}</h2><button className="btn o small" onClick={() => onNavigate('registration')}>{application ? 'View application' : 'Register or sign in'}</button></div>
     {application && <ApplicationStatus application={application} />}
@@ -127,10 +131,34 @@ function RegistrationForm({ initialKind, onSubmitted }: { initialKind: 'investor
         <label>Contact person's name<span className="required-marker" aria-hidden="true" /><input required minLength={2} maxLength={100} disabled={locked || busy} value={form.details?.contact_name ?? ''} onChange={event => detail('contact_name', event.target.value)} /></label>
       </>}
       <label>Authenticated wallet<input readOnly value={account ?? ''} className="mono" /></label>
-      {!locked && <><label className="consent-row"><input type="checkbox" required checked={consent} onChange={event => setConsent(event.target.checked)} />I am using fictional demonstration details and agree to share my approved display name with signed-in participants.</label><button className="btn" disabled={busy || !consent}>{busy ? 'Submitting…' : application ? 'Resubmit for review' : 'Submit application'}</button></>}
+      {!locked && <><TermsSummary /><label className="consent-row"><input type="checkbox" required checked={consent} onChange={event => setConsent(event.target.checked)} />I confirm that the information I have provided is true, accurate and complete, and I agree to the Terms &amp; Conditions and Privacy Policy. I consent to ReceivLedger collecting and using my information for identity verification (KYC), anti-money-laundering (AML) checks and regulatory record-keeping, and to my approved display name being visible to other signed-in participants.</label><button className="btn" disabled={busy || !consent}>{busy ? 'Submitting…' : application ? 'Resubmit for review' : 'Submit application'}</button></>}
     </form>
     {application && <DocumentsPanel applicationId={application.id} allowUpload />}
     {application && ['pending', 'needs_info'].includes(application.status) && <p className="footnote">Use the supporting document section to attach a fictional verification PDF. Never upload real identity documents. Supporting uploads can be added after submission; the manager must verify fictional KYC before approval.</p>}
     {(error || registryError) && <p className="inline-error" role="alert">{error || registryError}</p>}{message && <p className="notice info" role="status">{message}</p>}
   </section>;
 }
+
+/** Summary terms shown before consent. Demonstration wording: have a qualified lawyer review before any real use. */
+function TermsSummary() {
+  return <details className="help-item terms-details">
+    <summary>Read the Terms &amp; Conditions and Privacy Policy</summary>
+    <h4>Terms &amp; Conditions</h4>
+    <ol>
+      <li><b>Eligibility.</b> You must be authorised to act for yourself or the company you register, and the details you provide must be true, accurate and kept up to date.</li>
+      <li><b>Verification.</b> ReceivLedger may verify your identity and business and request supporting documents. Applications may be approved, rejected or suspended at the fund manager’s discretion.</li>
+      <li><b>Financing and investment.</b> Financing is offered on the published terms (advance, service fee and interest). Investments in the fund carry risk, including loss of capital; nothing on this website is financial advice.</li>
+      <li><b>Test network.</b> This service runs on the Ethereum Sepolia test network. RLU and SGD amounts shown have no real monetary value and no real payments are made.</li>
+      <li><b>Wallet security.</b> You are responsible for your wallet and private keys. ReceivLedger will never ask for your seed phrase or private key.</li>
+      <li><b>Changes.</b> These terms may be updated; continued use after an update means you accept the revised terms.</li>
+    </ol>
+    <h4>Privacy Policy</h4>
+    <ul>
+      <li><b>What we collect:</b> your name or company name, registration number, contact details, wallet address and the documents you upload.</li>
+      <li><b>Why:</b> to verify you (KYC), meet anti-money-laundering obligations, assess financing and keep required records.</li>
+      <li><b>Who sees it:</b> your details and documents are visible only to you and the fund manager. Your approved display name is shown to other signed-in participants. Blockchain transactions are public.</li>
+      <li><b>Your choices:</b> you can update your registered name and contact us to correct your information.</li>
+    </ul>
+  </details>;
+}
+

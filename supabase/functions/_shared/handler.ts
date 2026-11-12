@@ -1,7 +1,7 @@
 ﻿import { RequestError } from './domain.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { RegistryChain } from './chain.ts';
-import { assertManager, assertApplicationReview, fundRequestInput, invoiceId, MAX_PDF_BYTES, PRIVATE_BUCKET, registrationInput, requireUuid, type Application, type PrivateDocument } from './domain.ts';
+import { assertManager, assertApplicationReview, creditInput, fundRequestInput, invoiceId, invoiceReviewInput, MAX_PDF_BYTES, PRIVATE_BUCKET, registrationInput, requireUuid, type Application, type PrivateDocument } from './domain.ts';
 import { validatePdf } from './pdf.ts';
 
 interface Dependencies { admin: SupabaseClient; userClient: (token: string) => SupabaseClient; chain: RegistryChain; origins: string[] }
@@ -73,6 +73,27 @@ export function createRegistryHandler({ admin, userClient, chain, origins }: Dep
         if (name.length < 2 || name.length > 100) throw new RequestError('Enter a name with 2 to 100 characters.');
         return json(checked(await admin.rpc('rl_rename_application', { p_user: ownerId, p_name: name })));
       }
+      if (action === 'set_invoice_credit') {
+        // Bad debt: only the fund manager can impair, write off or clear a financed invoice.
+        assertManager(wallet, manager);
+        const id = invoiceId(input.invoice_id);
+        await chain.invoiceOwner(id); // throws if the invoice does not exist on-chain
+        const credit = creditInput(input);
+        return json(checked(await admin.rpc('rl_set_invoice_credit', { p_actor: ownerId, p_invoice: id, p_stage: credit.stage, p_expected_bps: credit.bps, p_recovered: credit.recovered, p_note: credit.note, p_version: credit.version })));
+      }
+      if (action === 'invoice_reviews') {
+        // The manager sees every decision; an SME sees only those on its own invoices.
+        if (isManager) return json(checked(await admin.from('rl_invoice_reviews').select('*').order('decided_at', { ascending: false }).limit(500)));
+        return json(checked(await admin.from('rl_invoice_reviews').select('*').eq('sme_wallet', wallet.toLowerCase()).limit(200)));
+      }
+      if (action === 'review_invoice') {
+        // Off-chain only: reject an invoice or ask the SME for more documents. The SME wallet comes from the chain.
+        assertManager(wallet, manager);
+        const id = invoiceId(input.invoice_id);
+        const sme = (await chain.invoiceOwner(id)).toLowerCase();
+        const review = invoiceReviewInput(input);
+        return json(checked(await admin.rpc('rl_set_invoice_review', { p_actor: ownerId, p_invoice: id, p_sme: sme, p_status: review.decision, p_note: review.note, p_version: review.version })));
+      }
       if (action === 'fund_requests') {
         // Investors see their own requests (row-level security); the manager sees all.
         if (isManager) return json(checked(await admin.from('rl_fund_requests').select('*').order('created_at', { ascending: false }).limit(300)));
@@ -105,6 +126,7 @@ export function createRegistryHandler({ admin, userClient, chain, origins }: Dep
         let query = user.from('rl_documents').select('*').order('created_at', { ascending: false }).limit(200);
         if (input.application_id) query = query.eq('application_id', requireUuid(input.application_id));
         if (input.invoice_id) query = query.eq('invoice_id', invoiceId(input.invoice_id));
+        if (input.fund_request_id) query = query.eq('fund_request_id', requireUuid(input.fund_request_id));
         return json(checked(await query));
       }
       if (action === 'upload' && form) {
@@ -114,7 +136,7 @@ export function createRegistryHandler({ admin, userClient, chain, origins }: Dep
         const bytes = new Uint8Array(await file.arrayBuffer());
         await validatePdf(bytes);
         const purpose = form.get('purpose');
-        let application_id: string | null = null; let invoice_id: string | null = null;
+        let application_id: string | null = null; let invoice_id: string | null = null; let fund_request_id: string | null = null;
         if (purpose === 'kyc') {
           application_id = requireUuid(form.get('application_id'));
           const app = checked(await user.from('rl_applications').select('*').eq('id', application_id).eq('user_id', ownerId).single()) as Application;
@@ -123,19 +145,27 @@ export function createRegistryHandler({ admin, userClient, chain, origins }: Dep
           // Invoice PDFs and repayment proofs attach only to the uploader's own on-chain invoice.
           invoice_id = invoiceId(form.get('invoice_id'));
           if ((await chain.invoiceOwner(invoice_id)).toLowerCase() !== wallet.toLowerCase()) throw new RequestError('This invoice belongs to another wallet.');
-        } else throw new RequestError('Choose a KYC, invoice or repayment-proof PDF.');
+        } else if (purpose === 'subscription') {
+          // Payment proof for the uploader's own subscription request, once the manager has approved it.
+          fund_request_id = requireUuid(form.get('fund_request_id'));
+          const found = checked(await admin.from('rl_fund_requests').select('id,user_id,kind,status').eq('id', fund_request_id).maybeSingle()) as { user_id: string; kind: string; status: string } | null;
+          if (!found || found.user_id !== ownerId || found.kind !== 'subscription') throw new RequestError('This subscription request belongs to another wallet.');
+          if (found.status !== 'approved') throw new RequestError('Upload payment proof once the fund manager has approved your subscription.');
+        } else throw new RequestError('Choose a KYC, invoice, repayment or payment-proof PDF.');
         const count = await admin.from('rl_documents').select('id', { count: 'exact', head: true }).eq('owner_id', ownerId);
         if (count.error || (count.count ?? 0) >= 20) throw new RequestError('Document limit reached or unavailable. Contact the project administrator.');
         const id = crypto.randomUUID(); const path = `${ownerId}/${id}.pdf`;
         const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))).map(v => v.toString(16).padStart(2, '0')).join('');
         const filename = file.name.replace(/[^\w.\- ]/g, '_').slice(0, 160) || 'demo.pdf';
         checked(await admin.storage.from(PRIVATE_BUCKET).upload(path, bytes, { contentType: 'application/pdf', upsert: false }));
-        const saved = await admin.from('rl_documents').insert({ id, owner_id: ownerId, application_id, invoice_id,
+        const saved = await admin.from('rl_documents').insert({ id, owner_id: ownerId, application_id, invoice_id, fund_request_id,
           purpose, filename, storage_path: path, byte_size: bytes.length, sha256 }).select('*').single();
         if (saved.error) {
           await admin.storage.from(PRIVATE_BUCKET).remove([path]);
           throw new RequestError('Document metadata could not be saved. Upload was not completed.');
         }
+        // An invoice document uploaded after the manager asked for more information answers that request.
+        if (purpose === 'invoice' && invoice_id) checked(await admin.rpc('rl_invoice_info_provided', { p_invoice: invoice_id, p_wallet: wallet }));
         return json(saved.data);
       }
       if (action === 'download') {

@@ -9,3 +9,11 @@ export function createTabSessionStorage(access: () => Storage = () => window.ses
   };
 }
 export const tabSessionStorage = createTabSessionStorage();
+
+/** Browser-lifetime credentials: one sign-in is reused across tabs and restarts until sign-out
+ * or a wallet change. Every restored session is still revalidated by Supabase Auth and the
+ * registry against the connected wallet before any private data is shown. */
+export function createBrowserSessionStorage(access: () => Storage = () => window.localStorage) {
+  return createTabSessionStorage(access);
+}
+export const browserSessionStorage = createBrowserSessionStorage();

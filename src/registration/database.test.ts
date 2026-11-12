@@ -57,6 +57,10 @@ beforeAll(async () => {
   await db.exec(readFileSync(new URL('../../supabase/migrations/202611120001_unique_display_names.sql', import.meta.url), 'utf8'));
   await db.exec(readFileSync(new URL('../../supabase/migrations/202611120002_fund_requests.sql', import.meta.url), 'utf8'));
   await db.exec(readFileSync(new URL('../../supabase/migrations/202611120003_repayment_proofs.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../../supabase/migrations/202611120004_review_after_more_info.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../../supabase/migrations/202611120005_invoice_credit_losses.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../../supabase/migrations/202611120006_subscription_payment_proofs.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../../supabase/migrations/202611120007_invoice_reviews.sql', import.meta.url), 'utf8'));
   for (let index = 0; index < ids.length; index++) {
     await db.query('insert into auth.users values($1)', [ids[index]]);
     await db.query("insert into auth.identities values($1,'web3',$2)", [ids[index], `web3:ethereum:${[manager, alice, bob][index]}`]);
@@ -65,7 +69,7 @@ beforeAll(async () => {
   }
 }, 30000);
 beforeEach(async () => {
-  await db.exec('reset role; truncate public.rl_review_audit,public.rl_fund_requests,public.rl_documents,public.rl_applications,public.rl_profiles,storage.objects restart identity cascade;');
+  await db.exec('reset role; truncate public.rl_review_audit,public.rl_invoice_reviews,public.rl_fund_requests,public.rl_invoice_credit,public.rl_invoice_credit_history,public.rl_documents,public.rl_applications,public.rl_profiles,storage.objects restart identity cascade;');
   await db.query('update public.rl_config set manager_wallet=$1', [manager]);
   for (let index = 0; index < ids.length; index++) await asUser(index, () => db.query('select public.rl_ensure_profile()'));
 });
@@ -122,6 +126,76 @@ describe('actual PostgreSQL migration, grants and row-level security', () => {
     expect((await asUser(2, () => db.query("select purpose from public.rl_documents"))).rows).toHaveLength(0);
     const reviewed = await db.query<{ status: string }>("select status from public.rl_review_document('40000000-0000-0000-0000-000000000001',1,$1,'verified','Payment received')", [ids[0]]);
     expect(reviewed.rows[0].status).toBe('verified');
+  });
+  it('lets the manager approve straight from "more information requested" once new KYC is verified', async () => {
+    const app = await apply(1, 'sme');
+    await db.query("select public.rl_review_application($1,1,$2,'needs_info','Upload a clearer KYC',null)", [app.id, ids[0]]);
+    await expect(db.query("select public.rl_review_application($1,2,$2,'approved','Approved',null)", [app.id, ids[0]])).rejects.toThrow(/Verify fictional KYC/);
+    await seedKyc(app.id);
+    const approved = await db.query<{ status: string; version: number }>("select status,version from public.rl_review_application($1,2,$2,'approved','New KYC verified',null)", [app.id, ids[0]]);
+    expect(approved.rows[0]).toEqual({ status: 'approved', version: 3 });
+  });
+  it('lets the manager reject or ask again from "more information requested"', async () => {
+    const app = await apply(1, 'sme');
+    await db.query("select public.rl_review_application($1,1,$2,'needs_info','Need more',null)", [app.id, ids[0]]);
+    expect((await db.query<{ status: string }>("select status from public.rl_review_application($1,2,$2,'needs_info','Still need more',null)", [app.id, ids[0]])).rows[0].status).toBe('needs_info');
+    expect((await db.query<{ status: string }>("select status from public.rl_review_application($1,3,$2,'rejected','Not eligible',null)", [app.id, ids[0]])).rows[0].status).toBe('rejected');
+  });
+  it('records bad debt: impaired then written off, publicly readable amounts but private notes', async () => {
+    const impaired = (await db.query<{ stage: string; expected_recovery_bps: number; version: number; effective_at: string }>("select stage,expected_recovery_bps,version,effective_at from public.rl_set_invoice_credit($1,'6','impaired',4000,null,'SME in liquidation',null)", [ids[0]])).rows[0];
+    expect(impaired).toMatchObject({ stage: 'impaired', expected_recovery_bps: 4000, version: 1 });
+    const written = (await db.query<{ stage: string; recovered_cents: string; version: number; effective_at: string }>("select stage,recovered_cents,version,effective_at from public.rl_set_invoice_credit($1,'6','written_off',null,2500,'Liquidator paid S$25',1)", [ids[0]])).rows[0];
+    expect(written).toMatchObject({ stage: 'written_off', version: 2 });
+    expect(Number(written.recovered_cents)).toBe(2500);
+    expect(written.effective_at).toEqual(impaired.effective_at); // interest stopped when it was first impaired
+    await expect(db.query("select public.rl_set_invoice_credit($1,'6','written_off',null,3000,'stale',1)", [ids[0]])).rejects.toThrow(/changed/);
+    // Anyone can read the amounts (no sign-in), but not the manager's note.
+    await db.exec('set role anon');
+    try {
+      const rows = (await db.query<{ invoice_id: string; stage: string; recovered_cents: string | number }>('select invoice_id,stage,recovered_cents from public.rl_invoice_credit')).rows;
+      expect(rows.map(row => ({ ...row, recovered_cents: Number(row.recovered_cents) }))).toEqual([{ invoice_id: '6', stage: 'written_off', recovered_cents: 2500 }]);
+      await expect(db.query('select note from public.rl_invoice_credit')).rejects.toThrow(/permission denied/);
+    } finally { await db.exec('reset role'); }
+    expect((await asUser(1, () => db.query('select * from public.rl_invoice_credit_history'))).rows).toHaveLength(0);
+    expect((await asUser(0, () => db.query('select * from public.rl_invoice_credit_history'))).rows).toHaveLength(2);
+    expect((await db.query("select public.rl_set_invoice_credit($1,'6','performing',null,null,'Recovered in full',2)", [ids[0]])).rows).toHaveLength(1);
+    expect((await db.query('select * from public.rl_invoice_credit')).rows).toHaveLength(0);
+  });
+  it('records off-chain invoice decisions that only the manager and the invoice’s SME can read', async () => {
+    const asked = (await db.query<{ status: string; version: number }>("select status,version from public.rl_set_invoice_review($1,'8',$2,'needs_info','Send the purchase order',null)", [ids[0], alice.toUpperCase().replace('0X', '0x')])).rows[0];
+    expect(asked).toMatchObject({ status: 'needs_info', version: 1 });
+    await expect(db.query("select public.rl_set_invoice_review($1,'8',$2,'rejected','stale',0)", [ids[0], alice])).rejects.toThrow(/changed/);
+    await expect(db.query("select public.rl_set_invoice_review($1,'8',$2,'rejected','',1)", [ids[0], alice])).rejects.toThrow(/Tell the SME why/);
+    await expect(db.query("select public.rl_set_invoice_review($1,'8',$2,'rejected','x',1)", [ids[1], alice])).rejects.toThrow(/Manager required/);
+    // Another wallet's upload does not answer the request; the SME's own does.
+    await db.query("select public.rl_invoice_info_provided('8',$1)", [bob]);
+    expect((await db.query<{ status: string }>("select status from public.rl_invoice_reviews")).rows[0].status).toBe('needs_info');
+    await db.query("select public.rl_invoice_info_provided('8',$1)", [alice]);
+    expect((await db.query<{ status: string; version: number }>("select status,version from public.rl_invoice_reviews")).rows[0]).toMatchObject({ status: 'info_provided', version: 2 });
+    expect((await asUser(1, () => db.query('select invoice_id from public.rl_invoice_reviews'))).rows).toHaveLength(1);
+    expect((await asUser(2, () => db.query('select invoice_id from public.rl_invoice_reviews'))).rows).toHaveLength(0);
+    expect((await asUser(0, () => db.query('select invoice_id from public.rl_invoice_reviews'))).rows).toHaveLength(1);
+    await expect(asUser(1, () => db.query("update public.rl_invoice_reviews set status='rejected'"))).rejects.toThrow(/permission denied/);
+    await expect(asUser(0, () => db.query("select public.rl_set_invoice_review($1,'8',$2,'cleared','',2)", [ids[0], alice]))).rejects.toThrow(/permission denied/);
+    await db.query("select public.rl_set_invoice_review($1,'8',$2,'cleared','',2)", [ids[0], alice]);
+    expect((await db.query('select * from public.rl_invoice_reviews')).rows).toHaveLength(0);
+  });
+  it('lets only the manager, through the service role, record bad debt', async () => {
+    await expect(db.query("select public.rl_set_invoice_credit($1,'6','impaired',0,null,'x',null)", [ids[1]])).rejects.toThrow(/Manager required/);
+    await expect(asUser(0, () => db.query("select public.rl_set_invoice_credit($1,'6','impaired',0,null,'x',null)", [ids[0]]))).rejects.toThrow(/permission denied/);
+    await expect(asUser(0, () => db.query("insert into public.rl_invoice_credit(invoice_id,stage,expected_recovery_bps) values('7','impaired',0)"))).rejects.toThrow(/permission denied/);
+  });
+  it('links subscription payment proofs to a fund request, and the manager can accept or reject them', async () => {
+    const request = (await db.query<{ id: string }>("select id from public.rl_create_fund_request($1,$2,'subscription',100)", [ids[1], alice])).rows[0];
+    const insert = (id: string, fund: string | null, invoice: string | null = null) => db.query(`insert into public.rl_documents(id,owner_id,fund_request_id,invoice_id,purpose,filename,storage_path,byte_size,sha256)
+      values($1,$2,$3,$4,'subscription','pay.pdf',$5,100,$6)`, [id, ids[1], fund, invoice, `${ids[1]}/${id}.pdf`, 'c'.repeat(64)]);
+    await insert('50000000-0000-0000-0000-000000000001', request.id);
+    await expect(insert('50000000-0000-0000-0000-000000000002', null)).rejects.toThrow(/rl_documents_purpose_target/);
+    await expect(insert('50000000-0000-0000-0000-000000000003', request.id, '6')).rejects.toThrow(/rl_documents_purpose_target/);
+    expect((await asUser(1, () => db.query("select fund_request_id from public.rl_documents where purpose='subscription'"))).rows).toHaveLength(1);
+    expect((await asUser(2, () => db.query("select id from public.rl_documents where purpose='subscription'"))).rows).toHaveLength(0);
+    const rejected = await db.query<{ status: string }>("select status from public.rl_review_document('50000000-0000-0000-0000-000000000001',1,$1,'rejected','Amount does not match')", [ids[0]]);
+    expect(rejected.rows[0].status).toBe('rejected');
   });
   it('lets only the service role rename applications', async () => {
     await apply(1);

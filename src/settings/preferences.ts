@@ -5,8 +5,10 @@ export interface Preferences {
   showBadges: boolean;
   textSize: 'default' | 'large';
   reduceMotion: boolean;
+  /** Ask MetaMask for the sign-in signature automatically after connecting. */
+  autoSignIn: boolean;
 }
-export const DEFAULT_PREFERENCES: Preferences = { showBadges: true, textSize: 'default', reduceMotion: false };
+export const DEFAULT_PREFERENCES: Preferences = { showBadges: true, textSize: 'default', reduceMotion: false, autoSignIn: true };
 const KEY = 'receivledger:preferences:v1';
 const listeners = new Set<() => void>();
 let cache: Preferences | null = null;

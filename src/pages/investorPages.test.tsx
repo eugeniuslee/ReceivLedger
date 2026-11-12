@@ -62,18 +62,20 @@ describe('Fund Performance', () => {
 });
 
 describe('Invest', () => {
-  it('requests a subscription and a redemption, and blocks redeeming more than the holding', async () => {
+  it('subscribes or redeems from one box, priced at NAV per RLU to 4 decimals', async () => {
     render(<Invest />);
-    const subscribe = within(screen.getByRole('heading', { name: 'Subscribe' }).parentElement!);
-    fireEvent.change(subscribe.getByLabelText('Amount (S$)'), { target: { value: '250' } });
-    expect(subscribe.getByText('250 RLU')).toBeTruthy();
-    fireEvent.click(subscribe.getByRole('button', { name: 'Request subscription' }));
+    expect(within(screen.getByLabelText('Your holding')).getByText('S$1.0005')).toBeTruthy(); // NAV S$1,000.45 / 1,000 RLU
+    const box = within(screen.getByRole('heading', { name: 'Subscribe or redeem' }).closest('section')!);
+    fireEvent.change(box.getByLabelText('Amount (S$)'), { target: { value: '250' } });
+    expect(box.getByText('249 RLU')).toBeTruthy(); // S$250 / S$1.00045, whole units
+    fireEvent.click(box.getByRole('button', { name: 'Request subscription' }));
     await waitFor(() => expect(request).toHaveBeenCalledWith({ action: 'request_fund', kind: 'subscription', amount: '250' }));
-    const redeem = within(screen.getByRole('heading', { name: 'Redeem' }).parentElement!);
-    fireEvent.change(redeem.getByLabelText('RLU to redeem'), { target: { value: '301' } });
-    expect((redeem.getByRole('button', { name: 'Request redemption' }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(redeem.getByRole('button', { name: 'Use full balance (300 RLU)' }));
-    fireEvent.click(redeem.getByRole('button', { name: 'Request redemption' }));
+    fireEvent.change(box.getByLabelText('I want to'), { target: { value: 'redemption' } });
+    fireEvent.change(box.getByLabelText('RLU to redeem'), { target: { value: '301' } });
+    expect((box.getByRole('button', { name: 'Request redemption' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(box.getByRole('button', { name: 'Use full balance (300 RLU)' }));
+    expect(box.getByText('S$300.14')).toBeTruthy(); // 300 × S$1,000.45 / 1,000
+    fireEvent.click(box.getByRole('button', { name: 'Request redemption' }));
     await waitFor(() => expect(request).toHaveBeenCalledWith({ action: 'request_fund', kind: 'redemption', amount: '300' }));
   });
 
@@ -82,6 +84,21 @@ describe('Invest', () => {
     const mine = within(screen.getByRole('heading', { name: 'Your requests' }).closest('section')!);
     fireEvent.click(await mine.findByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(request).toHaveBeenCalledWith({ action: 'cancel_fund_request', id: 'r1' }));
+  });
+
+  it('shows how to pay an approved subscription and uploads the payment proof', async () => {
+    requests = [fundRequest({ status: 'approved', version: 2 })];
+    render(<Invest />);
+    const mine = within(screen.getByRole('heading', { name: 'Your requests' }).closest('section')!);
+    expect(await mine.findByText('SUB-R1')).toBeTruthy(); // payment reference
+    fireEvent.click(mine.getByRole('button', { name: 'Upload payment proof' }));
+    fireEvent.change(mine.getByLabelText('Payment proof (PDF)'), { target: { files: [new File(['%PDF-1.4'], 'transfer.pdf', { type: 'application/pdf' })] } });
+    fireEvent.click(mine.getByRole('checkbox'));
+    fireEvent.click(mine.getByRole('button', { name: 'Send proof' }));
+    await waitFor(() => expect(request.mock.calls.some(([body]) => body instanceof FormData)).toBe(true));
+    const body = request.mock.calls.find(([value]) => value instanceof FormData)![0] as FormData;
+    expect(body.get('purpose')).toBe('subscription');
+    expect(body.get('fund_request_id')).toBe('r1');
   });
 
   it('is not available to wallets that are not approved investors', () => {
@@ -95,25 +112,88 @@ describe('manager Funds requests', () => {
   beforeEach(() => {
     const issueFundUnits = vi.fn();
     ledger = { ...ledger, account: other, role: 'manager', events: [], snapshot: { role: 'manager' },
-      ledger: { getMaxFundSize: vi.fn().mockResolvedValue(10_000n), issueFundUnits },
+      ledger: { getMaxFundSize: vi.fn().mockResolvedValue(10_000n), issueFundUnits, isApproved: vi.fn().mockResolvedValue(true), balanceOf: vi.fn().mockResolvedValue(300n) },
       runTransaction: vi.fn(async (_role: string, operation: (l: unknown) => unknown) => { await operation({ issueFundUnits }); return { hash: '0x' + 'ab'.repeat(32) }; }) };
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it('issues RLU for a subscription request and records the transaction', async () => {
+  it('opens the investor details so the manager can decide, and approves from there', async () => {
+    (ledger.ledger as Record<string, unknown>).isApproved = vi.fn().mockResolvedValue(true);
+    (ledger.ledger as Record<string, unknown>).balanceOf = vi.fn().mockResolvedValue(300n);
+    requests = [fundRequest({}), fundRequest({ id: 'r0', status: 'completed', amount: '100', created_at: '2026-10-01T00:00:00Z' })];
+    const application = { id: 'a1', wallet: me, kind: 'investor', status: 'approved', display_name: 'Ivy Investor', contact_email: 'ivy@example.com', contact_phone: '+65 8000 0000', details: { country: 'Singapore' }, submitted_at: '2026-09-01T00:00:00Z', created_at: '2026-09-01T00:00:00Z' };
+    const kyc = { id: 'k1', owner_id: 'u', application_id: 'a1', invoice_id: null, fund_request_id: null, purpose: 'kyc', filename: 'id.pdf', storage_path: 'x', byte_size: 1, sha256: 'a', status: 'verified', version: 1, review_note: null, created_at: '2026-09-01T00:00:00Z' };
+    request.mockImplementation(async (input: Record<string, unknown>) => input.action === 'fund_requests' ? requests : input.action === 'documents' ? [kyc] : input.action === 'applications' ? [application] : {});
     render(<Funds />);
     const panel = within(screen.getByRole('heading', { name: 'Subscription and redemption requests' }).closest('section')!);
+    const firstRow = (await panel.findByText('Needs your approval')).closest('tr')!;
+    expect(within(firstRow).getAllByRole('button').map(b => b.textContent)).toEqual(['Details']); // the table itself stays tidy
+    fireEvent.click(within(firstRow).getByRole('button', { name: 'Details' }));
+    const dialog = within(screen.getByRole('dialog'));
+    const glance = within(dialog.getByLabelText('Investor at a glance'));
+    expect(await glance.findByText('300 RLU')).toBeTruthy();
+    expect(glance.getByText('Yes')).toBeTruthy(); // approved on-chain
+    expect(glance.getByText('30.00%')).toBeTruthy(); // 300 of 1,000 RLU now
+    expect(glance.getByText('53.30%')).toBeTruthy(); // S$500 at NAV S$1.0005 buys 499 RLU → 799 of 1,499
+    expect(glance.getByText(/about/).textContent).toContain('499 RLU at S$1.0005 per RLU');
+    expect(await dialog.findByText('ivy@example.com')).toBeTruthy();
+    expect(dialog.getByText('Singapore')).toBeTruthy();
+    expect(dialog.getByText('1 of 1 verified')).toBeTruthy();
+    expect(dialog.getByRole('heading', { name: 'This request' })).toBeTruthy();
+    expect(dialog.getAllByRole('row')).toHaveLength(3); // header + two requests in the history
+    fireEvent.click(dialog.getByRole('button', { name: 'Approve request' }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ action: 'decide_fund_request', id: 'r1', decision: 'approved' })));
+    expect(await dialog.findByText(/approved\./)).toBeTruthy(); // stays open for the next step
+  });
+
+  it('lists open requests and keeps finished ones under View past requests', async () => {
+    requests = [fundRequest({}), fundRequest({ id: 'r0', status: 'completed', amount: '100', created_at: '2026-10-01T00:00:00Z' })];
+    render(<Funds />);
+    const panel = within(screen.getByRole('heading', { name: 'Subscription and redemption requests' }).closest('section')!);
+    expect(within(await panel.findByRole('table', { name: 'Open requests' })).getAllByRole('row')).toHaveLength(2);
+    expect(panel.queryByRole('table', { name: 'Past requests' })).toBeNull();
+    expect(panel.queryByLabelText('Open only')).toBeNull();
+    fireEvent.click(panel.getByRole('button', { name: 'View past requests (1)' }));
+    expect(within(panel.getByRole('table', { name: 'Past requests' })).getByText('Completed')).toBeTruthy();
+    fireEvent.click(panel.getByRole('button', { name: 'Hide past requests' }));
+    expect(panel.queryByRole('table', { name: 'Past requests' })).toBeNull();
+  });
+
+  it('keeps Issue RLU locked until the payment proof is accepted, and can ask for a new proof', async () => {
+    requests = [fundRequest({ status: 'approved', version: 2 })];
+    const proof = { id: 'p1', owner_id: 'u', application_id: null, invoice_id: null, fund_request_id: 'r1', purpose: 'subscription', filename: 'pay.pdf', storage_path: 'x', byte_size: 1, sha256: 'a', status: 'pending', version: 1, review_note: null, created_at: '2026-11-12T00:00:00Z' };
+    request.mockImplementation(async (input: Record<string, unknown>) => input.action === 'fund_requests' ? requests : input.action === 'documents' ? [proof] : {});
+    render(<Funds />);
+    const panel = within(screen.getByRole('heading', { name: 'Subscription and redemption requests' }).closest('section')!);
+    expect(await panel.findByText('Payment proof to check')).toBeTruthy(); // the table says what is waiting on the manager
+    fireEvent.click(panel.getByRole('button', { name: 'Details' }));
+    expect(((await panel.findByRole('button', { name: 'Issue RLU' })) as HTMLButtonElement).disabled).toBe(true);
+    expect(panel.getByText('Proof under review')).toBeTruthy();
+    fireEvent.click(panel.getByRole('button', { name: 'Ask for new proof' }));
+    fireEvent.change(panel.getByLabelText('What is wrong with the proof'), { target: { value: 'Amount does not match' } });
+    fireEvent.click(panel.getByRole('button', { name: 'Send request' }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith({ action: 'review_document', id: 'p1', version: 1, decision: 'rejected', note: 'Amount does not match' }));
+  });
+
+  it('issues RLU once the payment proof is accepted, and records the transaction', async () => {
+    requests = [fundRequest({ status: 'approved', version: 2 })];
+    const proof = { id: 'p1', owner_id: 'u', application_id: null, invoice_id: null, fund_request_id: 'r1', purpose: 'subscription', filename: 'pay.pdf', storage_path: 'x', byte_size: 1, sha256: 'a', status: 'verified', version: 2, review_note: 'Payment received', created_at: '2026-11-12T00:00:00Z' };
+    request.mockImplementation(async (input: Record<string, unknown>) => input.action === 'fund_requests' ? requests : input.action === 'documents' ? [proof] : {});
+    render(<Funds />);
+    const panel = within(screen.getByRole('heading', { name: 'Subscription and redemption requests' }).closest('section')!);
+    fireEvent.click(await panel.findByRole('button', { name: 'Details' }));
     fireEvent.click(await panel.findByRole('button', { name: 'Issue RLU' }));
-    await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ action: 'decide_fund_request', id: 'r1', version: 1, decision: 'completed', tx_hash: '0x' + 'ab'.repeat(32) })));
-    expect((ledger.ledger as { issueFundUnits: ReturnType<typeof vi.fn> }).issueFundUnits).toHaveBeenCalledWith(me, 500n);
+    await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ action: 'decide_fund_request', id: 'r1', version: 2, decision: 'completed', tx_hash: '0x' + 'ab'.repeat(32) })));
+    expect((ledger.ledger as { issueFundUnits: ReturnType<typeof vi.fn> }).issueFundUnits).toHaveBeenCalledWith(me, 499n); // S$500 at NAV S$1.00045 per RLU, whole units only
   });
 
   it('requires a reason to reject, and settles redemptions off-chain', async () => {
     requests = [fundRequest({ id: 'r2', kind: 'redemption', amount: '100' })];
     render(<Funds />);
     const panel = within(screen.getByRole('heading', { name: 'Subscription and redemption requests' }).closest('section')!);
-    expect(await panel.findByText('S$100.05')).toBeTruthy(); // 100 RLU at NAV
+    expect(await panel.findByText(/S\$100\.05/)).toBeTruthy(); // 100 RLU at NAV
+    fireEvent.click(panel.getByRole('button', { name: 'Details' }));
     fireEvent.click(panel.getByRole('button', { name: 'Reject' }));
     expect((panel.getByRole('button', { name: 'Confirm reject' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(panel.getByLabelText('Reason for rejecting'), { target: { value: 'Lock-up period' } });
