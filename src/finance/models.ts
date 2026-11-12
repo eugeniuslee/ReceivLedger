@@ -1,4 +1,5 @@
 import type { ChainEvent, ChainInvoice } from '../chain/chainLedger';
+import { calculateFinancing, financingDays, termsAt } from '../../supabase/functions/_shared/financing';
 
 export const DAY = 86400n;
 export const BPS = 10000n;
@@ -12,7 +13,7 @@ export interface Assumptions {
   smeCapBps: number; liquidityReserveBps: number; salesCapBps: number; annualSalesCents: bigint | null;
 }
 export const DEFAULT_ASSUMPTIONS: Assumptions = {
-  advanceBps: 8000, annualFeeBps: 1200, serviceFeeBps: 100,
+  advanceBps: 9000, annualFeeBps: 500, serviceFeeBps: 10,
   smeCapBps: 2000, liquidityReserveBps: 2000, salesCapBps: 1000, annualSalesCents: null,
 };
 export type RiskTier = 'unassessed' | 'low' | 'moderate' | 'high';
@@ -68,19 +69,16 @@ export function maturityState(invoice: ChainInvoice, now: bigint) {
       : invoice.status === 'Financed' && remaining === 0n ? 'Due now' : 'Maturity reached · not financed' };
 }
 
-/** Proposal only. Fees are withheld from the reserve at settlement, not the
- * initial advance. No fees or hypothetical principal are written to the chain. */
+/** Fees are withheld from the holdback at settlement, not the initial advance.
+ * Uses the shared financing formulas (src/finance/financing.ts). */
 export function financingQuote(faceCents: bigint, days: bigint, a: Assumptions) {
   validateAssumptions(a);
   if (faceCents <= 0n || days < 0n || days > 36500n) throw new Error('Use a positive face value and a duration of 0–36,500 days.');
-  const advanceCents = faceCents * BigInt(a.advanceBps) / BPS;
-  const reserveCents = faceCents - advanceCents;
-  const discountCents = roundRatio(advanceCents * BigInt(a.annualFeeBps) * days, BPS * 365n);
-  const serviceFeeCents = roundRatio(faceCents * BigInt(a.serviceFeeBps), BPS);
-  const incomeCents = discountCents + serviceFeeCents;
-  const smeSettlementCents = reserveCents - incomeCents;
-  return { faceCents, days, advanceCents, reserveCents, discountCents, serviceFeeCents, incomeCents,
-    expectedPayerSettlementCents: faceCents, fundRetainedCents: advanceCents + incomeCents,
+  const breakdown = calculateFinancing(faceCents, days, { ...termsAt(Math.floor(Date.now() / 1000)), advanceBps: a.advanceBps, serviceFeeBps: a.serviceFeeBps, annualInterestBps: a.annualFeeBps });
+  const incomeCents = breakdown.interestCents + breakdown.serviceFeeCents;
+  const smeSettlementCents = breakdown.holdbackCents - incomeCents;
+  return { ...breakdown, faceCents, reserveCents: breakdown.holdbackCents, discountCents: breakdown.interestCents, incomeCents,
+    expectedPayerSettlementCents: faceCents, fundRetainedCents: breakdown.advanceCents + incomeCents,
     smeSettlementCents, totalSmeProceedsCents: faceCents - incomeCents, feesFitReserve: smeSettlementCents >= 0n };
 }
 
@@ -134,7 +132,7 @@ export function assessInvoice(invoice: ChainInvoice, snapshot: FinancialSnapshot
   if (invoice.maturity > now + snapshot.maxMaturityDays * DAY) contractReasons.push(`Remaining maturity exceeds the contract's ${snapshot.maxMaturityDays}-day limit.`);
   if (invoice.amount > snapshot.availableFunds) contractReasons.push('The full invoice face value exceeds available contract funds.');
   if (payerExposureCents + invoice.amount * 100n > snapshot.maxPayerExposure * 100n) contractReasons.push('Full face value plus existing payer exposure exceeds the contract cap.');
-  const days = durationDays(now, invoice.maturity);
+  const days = financingDays(now, invoice.maturity);
   const quote = days <= 36500n && invoice.amount > 0n ? financingQuote(invoice.amount * 100n, days, a) : null;
   const modelReasons: string[] = [];
   if (invoice.status !== 'Submitted' && invoice.status !== 'Approved') modelReasons.push('This is a closed or already-financed record, not a new financing request.');
@@ -171,7 +169,7 @@ export function navScenario(snapshot: FinancialSnapshot, adjustments: { incomeCe
 export function prospectiveIncome(snapshot: FinancialSnapshot, now: bigint, annualFeeBps: number) {
   if (!Number.isInteger(annualFeeBps) || annualFeeBps < 0 || annualFeeBps > 10000) throw new Error('Invalid annual fee assumption.');
   return snapshot.invoices.filter(row => row.status === 'Financed' && row.maturity > now && row.maturity <= now + 36500n * DAY)
-    .reduce((sum, row) => sum + roundRatio(row.amount * 100n * BigInt(annualFeeBps) * durationDays(now, row.maturity), BPS * 365n), 0n);
+    .reduce((sum, row) => sum + calculateFinancing(row.amount * 100n, financingDays(now, row.maturity), { ...termsAt(Number(now)), annualInterestBps: annualFeeBps }).interestCents, 0n);
 }
 export function invoiceHistory(events: ChainEvent[], id: bigint) {
   return events.filter(event => event.invoiceId === id).slice().sort((a, b) => a.blockNumber - b.blockNumber || a.logIndex - b.logIndex);

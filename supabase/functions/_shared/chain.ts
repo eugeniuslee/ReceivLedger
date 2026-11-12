@@ -5,6 +5,7 @@ import { CHAIN_ID, CONTRACT_ADDRESS } from './domain.ts';
 export const REVIEW_ABI = [
   'function manager() view returns (address)',
   'function approvedInvestors(address) view returns (bool)',
+  'function balanceOf(address) view returns (uint256)',
   'function approveInvestor(address)',
   'event InvestorApproved(address investor)',
   'function invoices(uint256) view returns (uint256 id,address sme,string payerName,uint256 amount,uint256 maturityDate,uint8 status,string rejectionReason)',
@@ -32,6 +33,8 @@ export interface RegistryChain {
   manager(): Promise<string>;
   invoiceOwner(id: string): Promise<string>;
   verifyApproval(hash: string, wallet: string, manager: string): Promise<void>;
+  /** Current on-chain investor approval and RLU balance. */
+  investorStatus(wallet: string): Promise<{ approved: boolean; balance: bigint }>;
 }
 export function createRegistryChain(rpc: string): RegistryChain {
   const provider = new JsonRpcProvider(rpc);
@@ -46,6 +49,11 @@ export function createRegistryChain(rpc: string): RegistryChain {
       const invoice = await contract.getFunction('invoices')(id);
       if (BigInt(invoice.id) !== BigInt(id)) throw new RequestError('Invoice does not exist.');
       return String(invoice.sme).toLowerCase();
+    },
+    async investorStatus(wallet) {
+      await requireSepolia();
+      const [approved, balance] = await Promise.all([contract.getFunction('approvedInvestors')(wallet), contract.getFunction('balanceOf')(wallet)]);
+      return { approved: Boolean(approved), balance: BigInt(balance) };
     },
     async verifyApproval(hash, wallet, manager) {
       await requireSepolia();

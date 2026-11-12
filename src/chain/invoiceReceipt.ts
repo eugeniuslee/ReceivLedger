@@ -21,9 +21,23 @@ export function invoiceReceiptOutcome(receipt: unknown, action: 'approve' | 'fin
     if (action === 'approve' && event.name === 'InvoiceApproved') return { rejected: false,
       message: `Invoice #${invoiceId} approved on Sepolia. Approval does not deduct or reserve available funds.` };
     if (action === 'finance' && event.name === 'InvoiceFinanced') return { rejected: false,
-      message: `Invoice #${invoiceId} financed on Sepolia. ${formatMoney(event.args[1])} was committed from available funds in simulated accounting.` };
+      message: `Invoice #${invoiceId} financed on Sepolia. ${formatMoney(event.args[1])} was committed from available funds.` };
     if (action === 'repay' && event.name === 'InvoiceRepaid') return { rejected: false,
-      message: `Invoice #${invoiceId} repayment recorded on Sepolia. ${formatMoney(event.args[1])} principal was restored to available funds in simulated accounting.` };
+      message: `Invoice #${invoiceId} repayment recorded on Sepolia. ${formatMoney(event.args[1])} principal was restored to available funds.` };
   }
   return unknown;
+}
+
+/** The invoice ID assigned by a confirmed submitInvoice transaction, or null. */
+export function submittedInvoiceId(receipt: unknown): bigint | null {
+  const row = receipt as { status?: number; logs?: { address: string; topics: readonly string[]; data: string }[] } | null;
+  if (!row || row.status !== 1) return null;
+  for (const log of row.logs ?? []) {
+    if (log.address.toLowerCase() !== RECEIVLEDGER_ADDRESS.toLowerCase()) continue;
+    try {
+      const event = iface.parseLog({ topics: [...log.topics], data: log.data });
+      if (event?.name === 'InvoiceSubmitted') return BigInt(event.args[0]);
+    } catch { /* not a ReceivLedger event */ }
+  }
+  return null;
 }

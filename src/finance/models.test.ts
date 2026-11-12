@@ -16,17 +16,17 @@ describe('proposed advances and fees', () => {
     }
   });
   it('charges simple interest for exactly 365 days and rounds a half-cent service fee up', () => {
-    expect(financingQuote(100000n, 365n, defaults).discountCents).toBe(9600n);
-    expect(financingQuote(50n, 0n, defaults)).toMatchObject({ advanceCents: 40n, discountCents: 0n, serviceFeeCents: 1n });
+    expect(financingQuote(100000n, 365n, defaults).discountCents).toBe(4500n); // 5% of the S$900 advance
+    expect(financingQuote(500n, 0n, defaults)).toMatchObject({ advanceCents: 450n, discountCents: 0n, serviceFeeCents: 1n });
   });
   it('splits advance/reserve and computes simple annual and face-value fees exactly', () => {
     const quote = financingQuote(100000n, 30n, defaults);
-    expect(quote).toMatchObject({ advanceCents: 80000n, reserveCents: 20000n, discountCents: 789n, serviceFeeCents: 1000n,
-      incomeCents: 1789n, expectedPayerSettlementCents: 100000n, fundRetainedCents: 81789n, smeSettlementCents: 18211n, totalSmeProceedsCents: 98211n, feesFitReserve: true });
+    expect(quote).toMatchObject({ advanceCents: 90000n, reserveCents: 10000n, discountCents: 370n, serviceFeeCents: 100n,
+      incomeCents: 470n, expectedPayerSettlementCents: 100000n, fundRetainedCents: 90470n, smeSettlementCents: 9530n, totalSmeProceedsCents: 99530n, feesFitReserve: true });
     expect(quote.fundRetainedCents + quote.smeSettlementCents).toBe(quote.faceCents);
   });
   it.each([7000, 8000, 9000])('accepts configurable %i bps advances', advanceBps => {
-    expect(financingQuote(10001n, 0n, { ...defaults, advanceBps, serviceFeeBps: 0 }).advanceCents).toBe(10001n * BigInt(advanceBps) / 10000n);
+    expect(financingQuote(10001n, 0n, { ...defaults, advanceBps, serviceFeeBps: 0 }).advanceCents).toBe(roundRatio(10001n * BigInt(advanceBps), 10000n));
   });
   it.each([6999, 9001, NaN, 8000.5])('rejects invalid advance %s', advanceBps => {
     expect(() => financingQuote(10000n, 30n, { ...defaults, advanceBps })).toThrow();
@@ -82,7 +82,7 @@ describe('SME borrowing recommendations and actual full-face constraints', () =>
   });
   it('keeps the partial-advance recommendation separate from the stricter full-face contract check', () => {
     const result = assessInvoice(invoice(), snapshot({ maxPayerExposure: 90n }), now, defaults, 'unassessed');
-    expect(result.quote?.advanceCents).toBe(8000n); expect(result.modelWithinPolicy).toBe(true);
+    expect(result.quote?.advanceCents).toBe(9000n); expect(result.modelWithinPolicy).toBe(true);
     expect(result.contractEligible).toBe(false); expect(result.contractReasons.join(' ')).toContain('Full face value');
     expect(assessInvoice(invoice(), snapshot({ availableFunds: 99n }), now, defaults, 'low').contractReasons.join(' ')).toContain('full invoice face value');
   });
@@ -163,7 +163,7 @@ describe('NAV and income scenarios', () => {
   it('does not recognize historical or overdue principal as fee income or automatically add a forecast to NAV', () => {
     const data = snapshot({ availableFunds: 900n, invoices: [invoice({ status: 'Financed' }), invoice({ id: 2n, status: 'Repaid', amount: 1000n }), invoice({ id: 3n, status: 'Financed', amount: 10n, maturity: now - DAY })] });
     Object.freeze(data); data.invoices.forEach(Object.freeze); Object.freeze(data.invoices);
-    expect(prospectiveIncome(data, now, 1200)).toBe(99n);
+    expect(prospectiveIncome(data, now, 1200)).toBe(89n);
     expect(navScenario(data, zero).navCents).toBe(101000n);
     expect(data.availableFunds).toBe(900n); expect(data.totalSupply).toBe(1000n);
     expect(prospectiveIncome(snapshot({ invoices: [invoice({ status: 'Repaid' })] }), now, 1200)).toBe(0n);

@@ -41,6 +41,10 @@ interface LedgerContextValue {
   refresh: (force?: boolean) => Promise<void>;
   refreshEvents: (force?: boolean) => Promise<void>;
   ledger: ChainLedger | null;
+  /** Public InvoiceFinanced / InvoiceRepaid events, unfiltered by role. */
+  lifecycleEvents?: ChainEvent[];
+  /** Read-only access through the connected wallet's own Sepolia connection. */
+  readProvider: BrowserProvider | null;
   runTransaction: <T,>(requiredRole: WalletRole, operation: (ledger: ChainLedger) => Promise<T>) => Promise<T>;
 }
 
@@ -75,6 +79,12 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
   const [networkOk, setNetworkOk] = useState(false);
   const [snapshot, setSnapshot] = useState<RoleSnapshot | null>(null);
   const [events, setEvents] = useState<ChainEvent[]>([]);
+  // Public invoice lifecycle events (financed/repaid dates) for every role: needed to value the fund's NAV.
+  const [lifecycleEvents, setLifecycleEvents] = useState<ChainEvent[]>([]);
+  const publishEvents = useCallback((all: ChainEvent[], scopeRole: WalletRole, scopeAccount: string, scopeSnapshot: RoleSnapshot | null) => {
+    setEvents(scopeEvents(all, scopeRole, scopeAccount, scopeSnapshot));
+    setLifecycleEvents(all.filter(event => event.name === 'InvoiceFinanced' || event.name === 'InvoiceRepaid'));
+  }, []);
   const [eventIndexComplete, setEventIndexComplete] = useState(false);
   const [loading, setLoading] = useState(false);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -272,7 +282,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
         if (!isCurrent()) return;
         eventCacheRef.current = { key: cacheKey, entry };
         saveEventCache(window.localStorage, cacheKey, entry);
-        setEvents(scopeEvents(entry.events, activeRole, account, snapshotRef.current));
+        publishEvents(entry.events, activeRole, account, snapshotRef.current);
         setEventIndexComplete(true);
         setEventsError(null);
       } catch (cause) {
@@ -323,7 +333,7 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
         setSnapshot(nextSnapshot);
         if (cache) {
           eventCacheRef.current = { key: cacheKey, entry: cache };
-          setEvents(scopeEvents(cache.events, nextRole, account, nextSnapshot));
+          publishEvents(cache.events, nextRole, account, nextSnapshot);
         }
       } catch (cause) {
         if (isCurrent()) setError(`Blockchain refresh failed. Displayed balances and invoice statuses may be stale. ${errorMessage(cause)}`);
@@ -496,10 +506,17 @@ export function LedgerProvider({ children }: { children: ReactNode }) {
     refresh,
     refreshEvents,
     ledger,
+    readProvider: provider,
+    lifecycleEvents,
     runTransaction,
   };
 
   return <LedgerContext.Provider value={value}>{children}</LedgerContext.Provider>;
+}
+
+/** For components that may render outside LedgerProvider (previews, isolated tests). */
+export function useOptionalLedger(): LedgerContextValue | null {
+  return useContext(LedgerContext);
 }
 
 export function useLedger(): LedgerContextValue {

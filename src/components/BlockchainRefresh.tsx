@@ -19,6 +19,6 @@ export function BlockchainRefresh() {
     <button className="btn o small" disabled={!account || !networkOk || !role || busy || transactionPending} onClick={() => void reload()}>
       <span aria-hidden="true">↻ </span>{busy ? 'Refreshing…' : 'Refresh blockchain'}
     </button>
-    <span role="status" aria-live="polite">{busy ? 'Reading Sepolia…' : error || eventsError || failed ? 'Some data could not be refreshed. See the error message.' : completed ? 'Blockchain refresh completed.' : 'Balances, invoices and event history'}</span>
+    <span role="status" aria-live="polite">{busy ? 'Reading Sepolia…' : error || eventsError || failed ? 'Some data could not be refreshed. See the error message.' : completed ? 'Blockchain refresh completed.' : ''}</span>
   </div>;
 }

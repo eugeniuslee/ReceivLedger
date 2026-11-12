@@ -6,9 +6,12 @@ import { useLedger } from './chain/LedgerContext';
 import { NAVIGATION_KEY } from './chain/navigation';
 import type { WalletRole } from './chain/chainLedger';
 import { resetBrowserStorage } from './test/browserStorage';
+import { resetPreferencesCache } from './settings/preferences';
 import { V2Ledger } from './v2/V2Ledger';
 
-vi.mock('./chain/LedgerContext', () => ({ useLedger: vi.fn(), LedgerProvider: ({ children }: { children: React.ReactNode }) => children }));
+vi.mock('./chain/LedgerContext', () => ({ useLedger: vi.fn(), useOptionalLedger: () => null, LedgerProvider: ({ children }: { children: React.ReactNode }) => children }));
+let badges: Record<string, number> = {};
+vi.mock('./chain/ReviewCounts', () => ({ useReviewCounts: () => ({ badges }), ReviewCountsProvider: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock('./pages/Dashboard', () => ({ Dashboard: () => <div>Wallet home content</div> }));
 vi.mock('./pages/History', () => ({ History: () => <div>Wallet history content</div> }));
 vi.mock('./pages/Investors', () => ({ Investors: () => <div>Investor controls</div> }));
@@ -18,14 +21,14 @@ const walletA = '0x1111111111111111111111111111111111111111';
 const walletB = '0x2222222222222222222222222222222222222222';
 let wallet: ReturnType<typeof useLedger>;
 beforeEach(() => {
-  resetBrowserStorage();
+  resetBrowserStorage(); resetPreferencesCache();
   vi.spyOn(V2Ledger.prototype,'readReport').mockReturnValue(new Promise(()=>{}));
   wallet = {
     account: walletA, role: 'manager', networkOk: true, walletAvailable: true, walletChecking: false, walletEpoch: 0,
     isManager: true, isInvestor: false, isSme: false, snapshot: null, events: [], eventIndexComplete: true,
     loading: false, eventsLoading: false, transactionPending: false, error: null, eventsError: null, connectionNotice: null,
     connect: vi.fn(), disconnect: vi.fn(), signWalletMessage: vi.fn(), refresh: vi.fn().mockResolvedValue(undefined), refreshEvents: vi.fn().mockResolvedValue(undefined),
-    ledger: null, runTransaction: vi.fn(),
+    ledger: null, readProvider: null, runTransaction: vi.fn(),
   };
   vi.mocked(useLedger).mockImplementation(() => wallet);
 });
@@ -34,35 +37,52 @@ afterEach(()=>{cleanup();vi.restoreAllMocks();});
 function openProfileMenu() { fireEvent.click(screen.getByRole('button', { name: /^Account:/ })); }
 
 describe('Stage A wallet navigation and account controls', () => {
-  it.each<WalletRole>(['manager','investor','sme'])('opens the shared fund tools from %s Home', role => {
-    wallet.role=role;
+  it('shows notification counts on tabs with work to do, and hides them when turned off in Settings', () => {
+    badges = { invoices: 3, applications: 2, funds: 0 };
+    const view = render(<LedgerApp />);
+    const main = within(screen.getByRole('navigation', { name: 'Main navigation' }));
+    expect(main.getByLabelText('3 items to review').closest('button')!.textContent).toContain('Invoices');
+    expect(main.getByLabelText('2 items to review').closest('button')!.textContent).toContain('Applications');
+    expect(main.getByRole('button', { name: /Funds/ }).querySelector('.nav-badge')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Show notification badges/ }));
+    expect(main.queryByLabelText('3 items to review')).toBeNull();
+    view.unmount(); badges = {};
+  });
+  it('keeps manager Home free of the fund operations box, workspace label and application card', () => {
     render(<LedgerApp />);
-    fireEvent.click(screen.getByRole('button',{name:'Open financing and fund tools'}));
-    expect(screen.getByRole('heading',{level:1}).textContent).toBe('Financing & Fund Requests');
-    expect(screen.getByText(role==='manager'?'Execution disabled':'V2 is deployed on Sepolia. Financial execution remains disabled.')).toBeTruthy();
-    expect(screen.queryByRole('navigation',{name:'V2 preview sections'})).toBeNull();
+    expect(screen.queryByRole('button',{name:'Open financing and fund tools'})).toBeNull();
+    expect(screen.queryByText(/Your fund workspace/i)).toBeNull();
+    expect(screen.queryByRole('heading',{name:'Application & document review'})).toBeNull();
+  });
+  it.each<WalletRole>(['manager', 'investor', 'sme'])('retires the old financing preview tab for %s, including saved routes', role => {
+    wallet.role = role;
+    window.sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify({ account: walletA, page: 'fund' }));
+    render(<LedgerApp />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Home');
+    expect(screen.queryByRole('button', { name: /Financing & Fund Requests/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open financing and fund tools' })).toBeNull();
     expect(wallet.runTransaction).not.toHaveBeenCalled();
-    expect(wallet.signWalletMessage).not.toHaveBeenCalled();
   });
   it('restores the shared fund route for the same wallet and clears it on a wallet switch',()=>{
-    window.sessionStorage.setItem(NAVIGATION_KEY,JSON.stringify({account:walletA,page:'fund'}));
+    window.sessionStorage.setItem(NAVIGATION_KEY,JSON.stringify({account:walletA,page:'reports'}));
     const view=render(<LedgerApp/>);
-    expect(screen.getByRole('heading',{level:1}).textContent).toBe('Financing & Fund Requests');
+    expect(screen.getByRole('heading',{level:1}).textContent).toBe('Finances');
     wallet={...wallet,account:walletB,role:'sme',walletEpoch:1};
     view.rerender(<LedgerApp/>);
     expect(screen.getByRole('heading',{level:1}).textContent).toBe('Home');
-    expect(screen.queryByText('V2 is deployed on Sepolia. Financial execution remains disabled.')).toBeNull();
+    expect(screen.queryByText('The fund is deployed on Sepolia. Financial execution remains disabled.')).toBeNull();
   });
 
   it('orders the manager workflow and groups support links above the prototype note', () => {
     render(<LedgerApp />);
     const main = screen.getByRole('navigation', { name: 'Main navigation' });
     expect(within(main).getAllByRole('button').map(button => button.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual([
-      'Home', 'Financial Reports', 'Applications', 'Investors', 'Invoices', 'Transaction History', 'Financing & Fund Requests',
+      'Home', 'Finances', 'Funds', 'Invoices', 'Applications', 'Investors', 'SME', 'Transaction History',
     ]);
     const footer = screen.getByRole('navigation', { name: 'Support navigation' }).parentElement!;
     expect(footer.className).toBe('side-footer');
-    expect(within(footer).getByText('Ethereum Sepolia · University prototype')).toBeTruthy();
+    expect(within(footer).getByText('Ethereum Sepolia')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /About ReceivLedger/ }));
     expect(screen.getByRole('heading', { name: 'About ReceivLedger', level: 2 })).toBeTruthy();
     expect(screen.queryByText(/ReceiveLedger/)).toBeNull();
@@ -75,17 +95,17 @@ describe('Stage A wallet navigation and account controls', () => {
   });
   it('closes manager financial reporting when switching to an investor and rejects saved report access', () => {
     const view = render(<LedgerApp />);
-    fireEvent.click(screen.getByRole('button', { name: /Financial Reports/ }));
-    expect(screen.getByRole('heading', { name: 'Fund financial reporting' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Finances/ }));
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Finances');
     wallet = { ...wallet, account: walletB, role: 'investor' };
     view.rerender(<LedgerApp />);
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Home');
-    expect(screen.queryByRole('button', { name: /Financial Reports/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Finances/ })).toBeNull();
     view.unmount();
     window.sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify({ account: walletB, page: 'reports' }));
     render(<LedgerApp />);
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Home');
-    expect(screen.queryByRole('heading', { name: 'Fund financial reporting' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Finances' })).toBeNull();
   });
   it.each<WalletRole>(['manager', 'investor', 'inactiveInvestor', 'sme', 'provisional'])('uses Home for %s', role => {
     wallet.role = role;
@@ -127,11 +147,12 @@ describe('Stage A wallet navigation and account controls', () => {
   it('preserves assets but removes transfer access when approval changes without switching wallets', () => {
     wallet.role = 'investor';
     const view = render(<LedgerApp />);
-    fireEvent.click(screen.getByRole('button', { name: /My Assets/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Portfolio/ }));
     wallet = { ...wallet, role: 'inactiveInvestor' };
     view.rerender(<LedgerApp />);
     expect(screen.queryByRole('button', { name: 'Transfer' })).toBeNull();
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('My Assets');
+    expect(screen.queryByRole('button', { name: /Invest$/ })).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Portfolio');
   });
 
   it('refreshes both role-specific records and event history', async () => {
@@ -183,7 +204,7 @@ describe('Stage A wallet navigation and account controls', () => {
     fireEvent.click(screen.getByRole('button', { name: /Help & Support/ }));
     expect(screen.getByText('No project support contact has been configured.', { exact: false })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /About ReceivLedger/ }));
-    expect(screen.getByText('What the prototype represents')).toBeTruthy();
+    expect(screen.getByText('What ReceivLedger represents')).toBeTruthy();
   });
 
   it('honours the preference to forget the current page on reload', () => {

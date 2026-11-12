@@ -1,11 +1,13 @@
 ﻿import { RequestError } from './domain.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { RegistryChain } from './chain.ts';
-import { assertManager, assertApplicationReview, invoiceId, MAX_PDF_BYTES, PRIVATE_BUCKET, registrationInput, requireUuid, type Application, type PrivateDocument } from './domain.ts';
+import { assertManager, assertApplicationReview, fundRequestInput, invoiceId, MAX_PDF_BYTES, PRIVATE_BUCKET, registrationInput, requireUuid, type Application, type PrivateDocument } from './domain.ts';
 import { validatePdf } from './pdf.ts';
 
 interface Dependencies { admin: SupabaseClient; userClient: (token: string) => SupabaseClient; chain: RegistryChain; origins: string[] }
 function checked<T>({ data, error }: { data: T; error: { message: string } | null }): T {
+  // A new application can collide with the unique registered-name index.
+  if (error?.message.includes('rl_applications_display_name_unique')) throw new RequestError('That name is already used. Choose a different name.');
   if (error) throw new RequestError(error.message);
   return data;
 }
@@ -64,6 +66,37 @@ export function createRegistryHandler({ admin, userClient, chain, origins }: Dep
         return json(checked(await user.rpc('rl_submit_application', { p_kind: registration.kind, p_name: registration.display_name,
           p_company: registration.company_number, p_email: registration.contact_email, p_phone: registration.contact_phone, p_details: registration.details })));
       }
+      if (action === 'rename') {
+        // Renames only the caller's own application; uniqueness is enforced in the database.
+        if (typeof input.display_name !== 'string') throw new RequestError('Enter a registered name.');
+        const name = input.display_name.trim();
+        if (name.length < 2 || name.length > 100) throw new RequestError('Enter a name with 2 to 100 characters.');
+        return json(checked(await admin.rpc('rl_rename_application', { p_user: ownerId, p_name: name })));
+      }
+      if (action === 'fund_requests') {
+        // Investors see their own requests (row-level security); the manager sees all.
+        if (isManager) return json(checked(await admin.from('rl_fund_requests').select('*').order('created_at', { ascending: false }).limit(300)));
+        return json(checked(await user.from('rl_fund_requests').select('*').order('created_at', { ascending: false }).limit(100)));
+      }
+      if (action === 'request_fund') {
+        if (isManager) throw new RequestError('The fund manager cannot request subscriptions or redemptions.');
+        const { kind, amount } = fundRequestInput(input);
+        const status = await chain.investorStatus(wallet);
+        if (!status.approved) throw new RequestError('Only approved investors can make subscription or redemption requests.');
+        if (kind === 'redemption' && amount > status.balance) throw new RequestError(`You hold ${status.balance} RLU, which is less than the ${amount} RLU requested.`);
+        return json(checked(await admin.rpc('rl_create_fund_request', { p_user: ownerId, p_wallet: wallet, p_kind: kind, p_amount: amount.toString() })));
+      }
+      if (action === 'cancel_fund_request') {
+        return json(checked(await admin.rpc('rl_cancel_fund_request', { p_id: requireUuid(input.id), p_user: ownerId })));
+      }
+      if (action === 'decide_fund_request') {
+        assertManager(wallet, manager);
+        if (!['approved', 'rejected', 'completed'].includes(input.decision)) throw new RequestError('Choose approve, complete or reject.');
+        if (!Number.isInteger(input.version) || input.version < 1) throw new RequestError('Refresh the request and try again.');
+        const note = typeof input.note === 'string' ? input.note.trim().slice(0, 500) : '';
+        const tx = typeof input.tx_hash === 'string' && /^0x[\da-fA-F]{64}$/.test(input.tx_hash) ? input.tx_hash : null;
+        return json(checked(await admin.rpc('rl_decide_fund_request', { p_id: requireUuid(input.id), p_version: input.version, p_actor: ownerId, p_decision: input.decision, p_note: note, p_tx: tx })));
+      }
       if (action === 'applications') {
         assertManager(wallet, manager);
         return json(checked(await admin.from('rl_applications').select('*').order('created_at', { ascending: false }).limit(200)));
@@ -86,10 +119,11 @@ export function createRegistryHandler({ admin, userClient, chain, origins }: Dep
           application_id = requireUuid(form.get('application_id'));
           const app = checked(await user.from('rl_applications').select('*').eq('id', application_id).eq('user_id', ownerId).single()) as Application;
           if (!['pending', 'needs_info'].includes(app.status)) throw new RequestError('KYC can only be attached to your pending application or information request.');
-        } else if (purpose === 'invoice') {
+        } else if (purpose === 'invoice' || purpose === 'repayment') {
+          // Invoice PDFs and repayment proofs attach only to the uploader's own on-chain invoice.
           invoice_id = invoiceId(form.get('invoice_id'));
           if ((await chain.invoiceOwner(invoice_id)).toLowerCase() !== wallet.toLowerCase()) throw new RequestError('This invoice belongs to another wallet.');
-        } else throw new RequestError('Choose KYC or invoice PDF.');
+        } else throw new RequestError('Choose a KYC, invoice or repayment-proof PDF.');
         const count = await admin.from('rl_documents').select('id', { count: 'exact', head: true }).eq('owner_id', ownerId);
         if (count.error || (count.count ?? 0) >= 20) throw new RequestError('Document limit reached or unavailable. Contact the project administrator.');
         const id = crypto.randomUUID(); const path = `${ownerId}/${id}.pdf`;

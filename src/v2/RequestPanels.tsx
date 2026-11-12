@@ -21,14 +21,14 @@ export function RedemptionDraft({ report }: { report:Report|null }) {
     if(report){const supply=BigInt(report.fund.pricingUnits);if(supply>0n)estimate=amount*BigInt(report.fund.navCents)/supply;}
   } catch {error='Enter positive RLU2 units with at most two decimals and a non-negative minimum payout.';}
   return <details className="model-controls"><summary>Prepare a redemption request</summary><p>Draft only. No units are escrowed and no request is submitted.</p>
-    <div className="form-row"><label>RLU2 units to redeem<input inputMode="decimal" value={quantity} onChange={e=>setQuantity(e.target.value)}/></label><label>Minimum accepted simulated payout (S$)<input inputMode="decimal" value={minimum} onChange={e=>setMinimum(e.target.value)}/></label></div>
-    {error&&<p role="alert">{error}</p>}<p>{estimate===null?'A live V2 NAV and active-unit read is required to estimate a payout.':`Indicative payout at the reporting block: ${money(estimate)}. Allocation reprices at execution; liquidity, eligibility, escrow and minimum payout must be rechecked.`}</p>
+    <div className="form-row"><label>RLU2 units to redeem<input inputMode="decimal" value={quantity} onChange={e=>setQuantity(e.target.value)}/></label><label>Minimum accepted payout (S$)<input inputMode="decimal" value={minimum} onChange={e=>setMinimum(e.target.value)}/></label></div>
+    {error&&<p role="alert">{error}</p>}<p>{estimate===null?'A live NAV and active-unit read is required to estimate a payout.':`Indicative payout at the reporting block: ${money(estimate)}. Allocation reprices at execution; liquidity, eligibility, escrow and minimum payout must be rechecked.`}</p>
     <button className="btn o" disabled>Submit redemption request</button>
   </details>;
 }
 export function ManagerDraft() {
-  return <details className="model-controls"><summary>Prepare a manager review</summary><p>Draft only. Select a confirmed V2 request after deployment; IDs never refer to V1 invoices.</p>
-    <div className="form-row"><label>V2 request or invoice ID<input inputMode="numeric" placeholder="Confirmed V2 ID"/></label><label>Review / rejection reason<input maxLength={250}/></label><label>Simulated collection amount (S$)<input inputMode="decimal"/></label><label>Unique funding / collection reference<input placeholder="Reviewed evidence reference"/></label></div>
+  return <details className="model-controls"><summary>Prepare a manager review</summary><p>Draft only. Select a confirmed fund request; IDs never refer to invoice ledger invoices.</p>
+    <div className="form-row"><label>Request or invoice ID<input inputMode="numeric" placeholder="Confirmed request ID"/></label><label>Review / rejection reason<input maxLength={250}/></label><label>Collection amount (S$)<input inputMode="decimal"/></label><label>Unique funding / collection reference<input placeholder="Reviewed evidence reference"/></label></div>
     <p>No draft is saved or executed. Canonical identities, funding, credit clearance and private documents require independently verified evidence.</p>
   </details>;
 }
@@ -37,7 +37,7 @@ export function RequestHistory({report,stakeholder}:{report:Report;stakeholder:'
   const subscriptions=(report.subscriptions??[]).filter(r=>all||own(r.investor));
   const redemptions=(report.redemptions??[]).filter(r=>all||own(r.investor));
   const invoices=(report.invoices??[]).filter(r=>all||r.sme&&own(r.sme));
-  return <section className="section-block"><h2>{all?'Fund request register':'Your V2 request register'}</h2><p>Confirmed public records at Sepolia block {report.blockTag}. These states do not prove real payments. Record IDs are not fabricated transaction receipts.</p>
+  return <section className="section-block"><h2>{all?'Fund request register':'Your request register'}</h2><p>Confirmed public records at Sepolia block {report.blockTag}. These states do not prove real payments. Record IDs are not fabricated transaction receipts.</p>
     {stakeholder!=='sme'&&<><h3>Investment requests</h3>{subscriptions.length?subscriptions.map(r=><p key={String(r.id)}>#{String(r.id)} · {money(r.cents)} · {label(['Pending funding','Pending review','Ready','Processed','Cancelled','Refund pending','Refunded','Rejected'],r.status)} · Funding {r.funded?'confirmed by manager':'not confirmed'}{all&&` · ${r.investor}`}</p>):<p>No investment requests for this view.</p>}
     <h3>Redemption requests</h3>{redemptions.length?redemptions.map(r=><p key={String(r.id)}>#{String(r.id)} · {units(r.units)} · {label(['Pending review','Pending liquidity','Allocated','Settled','Cancelled','Rejected'],r.status)} · Allocated payout {money(r.payoutCents)}{all&&` · ${r.investor}`}</p>):<p>No redemption requests for this view.</p>}</>}
     {stakeholder!=='investor'&&<><h3>Invoice status and repayment breakdown</h3>{invoices.length?invoices.map(r=><details className="model-controls" key={String(r.id)}><summary>Invoice #{String(r.id)} · {label(['Submitted','Auto-approved','Approved','Financed','Rejected','Repaid'],r.status)}</summary>

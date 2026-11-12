@@ -74,7 +74,7 @@ export function DocumentsPanel({ applicationId, invoiceId, allowUpload = false }
     {loading && <p role="status">Loading private documents…</p>}
     <div className="table-scroll"><table><thead><tr><th>Document</th><th>Linked record</th><th>Review status</th><th>Actions</th></tr></thead><tbody>{visibleDocuments.map(doc => <tr key={doc.id}>
       <td><strong>{doc.filename}</strong><small className="document-meta">{(doc.byte_size / 1024).toFixed(0)} KB · SHA-256 {doc.sha256.slice(0, 12)}…</small></td>
-      <td>{doc.purpose === 'invoice' ? `Invoice #${doc.invoice_id}` : 'Application KYC'}</td><td>{doc.status}{doc.review_note && <small className="document-meta">{doc.review_note}</small>}</td>
+      <td>{doc.purpose === 'invoice' ? `Invoice #${doc.invoice_id}` : doc.purpose === 'repayment' ? `Repayment proof · Invoice #${doc.invoice_id}` : 'Application KYC'}</td><td>{doc.status}{doc.review_note && <small className="document-meta">{doc.review_note}</small>}</td>
       <td><button className="btn o small" disabled={busy} onClick={() => void download(doc)}>Download PDF</button>
         {isManager && doc.status === 'pending' && <div className="document-review"><label>Review note<input value={notes[doc.id] ?? ''} maxLength={2000} onChange={event => setNotes(previous => ({ ...previous, [doc.id]: event.target.value }))} /></label>
           <button className="btn small" disabled={busy} onClick={() => void review(doc, 'verified')}>Verify demo document</button><button className="btn o small" disabled={busy} onClick={() => void review(doc, 'rejected')}>Reject</button></div>}

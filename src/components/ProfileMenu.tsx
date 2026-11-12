@@ -4,6 +4,7 @@ import { shortAddress } from '../chain/presentation';
 import { walletIdentity } from '../chain/navigation';
 import type { PageId } from '../chain/access';
 import { useRegistry } from '../registration/RegistryContext';
+import { initialsOf, useAvatar } from '../settings/avatar';
 
 export function ProfileMenu({ onNavigate }: { onNavigate: (page: PageId) => void }) {
   const { account, role, disconnect, transactionPending } = useLedger();
@@ -14,7 +15,8 @@ export function ProfileMenu({ onNavigate }: { onNavigate: (page: PageId) => void
   const trigger = useRef<HTMLButtonElement>(null);
   const identity = walletIdentity(role);
   const name = registeredName ?? identity.name;
-  const initials = name.trim().split(/\s+/).map(word => word[0]).slice(0, 2).join('').toUpperCase();
+  const initials = initialsOf(name);
+  const { avatar } = useAvatar(account);
 
   useEffect(() => {
     if (!open) return;
@@ -39,7 +41,7 @@ export function ProfileMenu({ onNavigate }: { onNavigate: (page: PageId) => void
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
   }}>
     <button className="profile-trigger" ref={trigger} aria-label={`Account: ${name}`} aria-expanded={open} aria-controls="profile-options" onClick={() => { setFeedback(''); setOpen(value => !value); }}>
-      <span className="avatar" aria-hidden="true">{initials}</span>
+      <span className="avatar" aria-hidden="true">{avatar === 'initials' ? initials : avatar}</span>
       <span className="profile-summary"><strong>{name}</strong><span>{registeredName ? `${identity.name} · ` : ''}{shortAddress(account)}</span></span><span aria-hidden="true">⌄</span>
     </button>
     {open && <div className="profile-dropdown" id="profile-options" aria-label="Account options">

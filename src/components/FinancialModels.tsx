@@ -2,11 +2,12 @@ import { useState } from 'react';
 import type { ChainInvoice } from '../chain/chainLedger';
 import { useFinance } from '../finance/FinanceContext';
 import { financialDate } from '../finance/presentation';
+import type { FinancingBreakdown } from '../finance/financing';
 import { assessInvoice, durationDays, financingQuote, money, moneyInput, navScenario, percentInput, perUnit, roundRatio, RISK_POLICY, validateAssumptions, type Assumptions, type FinancialSnapshot, type RiskTier } from '../finance/models';
 import { formatInteger } from '../chain/presentation';
 
 type Draft = Record<'advance' | 'annualFee' | 'serviceFee' | 'smeCap' | 'reserve' | 'salesCap' | 'sales', string>;
-const initialDraft: Draft = { advance: '80', annualFee: '12', serviceFee: '1', smeCap: '20', reserve: '20', salesCap: '10', sales: '' };
+const initialDraft: Draft = { advance: '90', annualFee: '5', serviceFee: '0.1', smeCap: '20', reserve: '20', salesCap: '10', sales: '' };
 export function useModelAssumptions() {
   const [draft, setDraft] = useState<Draft>(initialDraft);
   let assumptions: Assumptions | null = null; let error = '';
@@ -38,16 +39,29 @@ export function FinancialSource({ compact = false }: { compact?: boolean }) {
   </div>;
 }
 
-export function QuoteBreakdown({ quote }: { quote: ReturnType<typeof financingQuote> }) {
-  return <><dl className="detail-list">
-    <div><dt>Invoice face value</dt><dd>{money(quote.faceCents)}</dd></div><div><dt>Proposed initial advance</dt><dd>{money(quote.advanceCents)}</dd></div>
-    <div><dt>Reserve held back</dt><dd>{money(quote.reserveCents)}</dd></div><div><dt>Financing duration</dt><dd>{quote.days.toString()} charged day(s)</dd></div>
-    <div><dt>Simple discount charge</dt><dd>{money(quote.discountCents)}</dd></div><div><dt>Service fee</dt><dd>{money(quote.serviceFeeCents)}</dd></div>
-    <div><dt>Hypothetical fund gross income</dt><dd>{money(quote.incomeCents)}</dd></div><div><dt>Expected payer settlement</dt><dd>{money(quote.expectedPayerSettlementCents)}</dd></div>
-    <div><dt>Fund retains at settlement</dt><dd>{money(quote.fundRetainedCents)} (advance + fees)</dd></div>
-    <div><dt>Potential balance returned to SME</dt><dd>{money(quote.smeSettlementCents)}{!quote.feesFitReserve && ' · additional SME payment required'}</dd></div>
-    <div><dt>Total proposed SME proceeds</dt><dd>{money(quote.totalSmeProceedsCents)}</dd></div>
-  </dl><p className="footnote">Discount = proposed advance × annual rate × rounded-up days / 365. Service fee = face value × service fee %. Fees round half-up to cents; the advance rounds down. Fees are assumed withheld from the reserve at settlement. No income here has been earned, paid or recorded on-chain.</p></>;
+export function QuoteBreakdown({ quote }: { quote: FinancingBreakdown }) {
+  return <FinancingBreakdownList breakdown={quote} />;
+}
+
+const rate = (bps: number) => `${(bps / 100).toLocaleString('en-SG', { maximumFractionDigits: 2 })}%`;
+/** The standard financing breakdown: upfront cash, charges owed, and holdback released. */
+export function FinancingBreakdownList({ breakdown: b, durationLabel = 'Estimated financing duration', heading = 'Estimated' }: { breakdown: FinancingBreakdown; durationLabel?: string; heading?: 'Estimated' | 'Actual' | 'Accrued' }) {
+  return <>
+    <h4>Cash disbursement</h4><dl className="detail-list">
+      <div><dt>Invoice amount</dt><dd>{money(b.invoiceCents)}</dd></div>
+      <div><dt>Advance rate</dt><dd>{rate(b.terms.advanceBps)}</dd></div>
+      <div><dt>Cash SME receives upfront</dt><dd>{money(b.advanceCents)}</dd></div>
+      <div><dt>Holdback ({rate(10000 - b.terms.advanceBps)})</dt><dd>{money(b.holdbackCents)}</dd></div>
+    </dl>
+    <h4>{heading} financing charges</h4><dl className="detail-list">
+      <div><dt>Service fee ({rate(b.terms.serviceFeeBps)})</dt><dd>{money(b.serviceFeeCents)}</dd></div>
+      <div><dt>Financing interest ({rate(b.terms.annualInterestBps)} p.a.)</dt><dd>{money(b.interestCents)}</dd></div>
+      <div><dt>{durationLabel}</dt><dd>{b.days.toString()} day(s)</dd></div>
+    </dl>
+    <h4>Summary</h4><dl className="detail-list">
+      <div><dt>Total {heading.toLowerCase()} repayment (SME owes)</dt><dd>{money(b.payableCents)}</dd></div>
+      <div><dt>{heading} holdback released after settlement</dt><dd>{money(b.holdbackReleasedCents)}{b.smeTopUpCents > 0n && ` · SME pays an extra ${money(b.smeTopUpCents)}`}</dd></div>
+    </dl><p className="footnote">Interest = cash advanced × {rate(b.terms.annualInterestBps)} × days / 365 (simple, not compounded). Repayment = advance + service fee + interest. Holdback released = holdback − service fee − interest, once the full invoice amount is collected. Terms {b.terms.version}.</p></>;
 }
 
 export function InvoiceAssessment({ invoice }: { invoice: ChainInvoice }) {
@@ -79,9 +93,9 @@ export function InvoiceAssessment({ invoice }: { invoice: ChainInvoice }) {
       <p><b>Expected payer date:</b> {financialDate(invoice.maturity)} SGT · {durationDays(now, invoice.maturity).toString()} future day(s). Actual settlement timing is unknown.</p>
       <div className={`notice ${result.contractEligible ? 'info' : 'warning'}`}><b>Observed contract eligibility: {result.contractEligible ? 'passes current checks' : 'not ready'}</b>{result.contractReasons.length > 0 && <ul>{result.contractReasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}<p className="footnote">Date checks use the device clock; Solidity checks the execution block timestamp. Amount/date checks do not reserve funds or guarantee transaction success.</p></div>
       <div className="notice info"><b>Demo policy: {result.modelWithinPolicy ? 'within modelled capacity; human review required' : 'requires changes or further review'}</b>{result.modelReasons.length > 0 && <ul>{result.modelReasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}</div>
-      {result.quote && <details className="fee-details" open><summary>Proposed {assumptions!.advanceBps / 100}% advance and fee breakdown</summary><QuoteBreakdown quote={result.quote} /></details>}
+      {result.quote && <details className="fee-details" open><summary>Estimated {assumptions!.advanceBps / 100}% advance and fee breakdown</summary><QuoteBreakdown quote={result.quote} /></details>}
     </>}
-    <div className="notice warning"><b>Actual contract transaction:</b> financeInvoice commits the full {money(invoice.amount * 100n)} face value (100%). It charges no fee and cannot execute the proposed partial advance. This model neither changes nor bypasses that rule.</div>
+    <p className="footnote">On-chain, financing records the full {money(invoice.amount * 100n)} invoice amount against available funds; the advance, holdback, fee and interest above are calculated by ReceivLedger.</p>
   </section>;
 }
 
@@ -110,12 +124,12 @@ export function NavIllustration({ snapshot, investor = false }: { snapshot: Fina
   try { result = navScenario(snapshot, { incomeCents: moneyInput(income), liabilitiesCents: moneyInput(liabilities), impairmentBps: percentInput(impairment) }); }
   catch (cause) { error = (cause as Error).message; }
   return <section className="section-block"><div className="section-heading"><h2>{investor ? 'Your investment illustration' : 'Illustrative NAV bridge'}</h2><span className="source-tag illustrative">Off-chain scenario</span></div>
-    <p className="support-copy">NAV here is a model of available simulated capital plus outstanding principal, adjusted by your explicit assumptions. totalFundSize is issued simulated capital, not actual NAV. Defaults assume full principal recovery, no income and no other liabilities; none of these is verified fair value.</p>
+    <p className="support-copy">NAV here is a model of available capital plus outstanding principal, adjusted by your explicit assumptions. totalFundSize is issued capital, not actual NAV. Defaults assume full principal recovery, no income and no other liabilities; none of these is verified fair value.</p>
     {investor && <div className="metric-grid"><div className="metric"><span>RLU holdings at reporting block</span><strong>{formatInteger(snapshot.connectedBalance)}</strong><small>On-chain, 0 decimals</small></div><div className="metric"><span>Total RLU supply</span><strong>{formatInteger(snapshot.totalSupply)}</strong><small>Same reporting block</small></div><div className="metric"><span>Ownership</span><strong>{ownership === null ? 'Not defined' : `${ownership / 100n}.${String(ownership % 100n).padStart(2, '0')}%`}</strong><small>Holdings / total supply</small></div></div>}
     <details className="model-controls"><summary>Edit NAV scenario assumptions</summary><div className="model-inputs"><label>Assumed additional fund income (S$)<input value={income} inputMode="decimal" onChange={event => setIncome(event.target.value)} /></label><label>Assumed fund liabilities (S$)<input value={liabilities} inputMode="decimal" onChange={event => setLiabilities(event.target.value)} /></label><label>Impairment / outstanding principal (%)<input value={impairment} inputMode="decimal" onChange={event => setImpairment(event.target.value)} /></label></div><p className="footnote">These are personal what-if inputs for this view. No income is inferred from repayments, and fee scenarios elsewhere are not automatically added to NAV.</p></details>
     {error && <p className="inline-error" role="alert">{error}</p>}
     {result && <><div className="metric-grid model-metrics"><div className="metric"><span>Illustrative fund NAV</span><strong>{money(result.navCents)}</strong><small>Scenario equity, not on-chain cash</small></div><div className="metric"><span>Illustrative NAV per RLU</span><strong>{perUnit(result.navPerRluMicros)}</strong><small>6 decimal display precision</small></div>{investor && <div className="metric"><span>Estimated holdings value</span><strong>{result.holdingsValueCents === null ? 'Not defined' : money(result.holdingsValueCents)}</strong><small>Pro-rata scenario value only</small></div>}</div>
-      <dl className="detail-list"><div><dt>Available simulated capital</dt><dd>{money(snapshot.availableFunds * 100n)}</dd></div><div><dt>Outstanding financed principal</dt><dd>{money(result.principalCents)}</dd></div><div><dt>Less assumed impairment</dt><dd>{money(result.impairmentCents)}</dd></div><div><dt>Plus assumed income</dt><dd>{money(moneyInput(income))}</dd></div><div><dt>Less assumed liabilities</dt><dd>{money(moneyInput(liabilities))}</dd></div></dl>
+      <dl className="detail-list"><div><dt>Available capital</dt><dd>{money(snapshot.availableFunds * 100n)}</dd></div><div><dt>Outstanding financed principal</dt><dd>{money(result.principalCents)}</dd></div><div><dt>Less assumed impairment</dt><dd>{money(result.impairmentCents)}</dd></div><div><dt>Plus assumed income</dt><dd>{money(moneyInput(income))}</dd></div><div><dt>Less assumed liabilities</dt><dd>{money(moneyInput(liabilities))}</dd></div></dl>
       {result.navCents < 0n && <p className="notice warning">This stress scenario has negative net assets. It is not a redeemable token price.</p>}
       {snapshot.totalSupply === 0n && <p className="notice info">There are no issued RLU. Ownership, NAV per RLU and holdings value are undefined.</p>}
     </>}

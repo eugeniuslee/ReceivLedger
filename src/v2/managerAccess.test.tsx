@@ -9,12 +9,13 @@ import {useLedger} from '../chain/LedgerContext';
 import {useRegistry} from '../registration/RegistryContext';
 import {usePublicReport} from './usePublicReport';
 import type {V2Ledger} from './V2Ledger';
-vi.mock('../chain/LedgerContext',()=>({useLedger:vi.fn()}));
+vi.mock('../chain/LedgerContext',()=>({useLedger:vi.fn(),useOptionalLedger:()=>null}));
 vi.mock('../registration/RegistryContext',()=>({useRegistry:vi.fn()}));
 vi.mock('./usePublicReport',()=>({usePublicReport:vi.fn()}));
+vi.mock('../finance/FinanceContext',async()=>{const {testSnapshot,testNow}=await import('../finance/fixtures');return {useFinance:()=>({data:testSnapshot(),loading:false,error:null,now:testNow,refresh:vi.fn()})};});
 let wallet:ReturnType<typeof useLedger>,registry:ReturnType<typeof useRegistry>,read:ReturnType<typeof vi.fn>;
 beforeEach(()=>{
-  wallet={account:'0x'+'11'.repeat(20),role:'manager',networkOk:true,isV2Manager:true,v2Owner:'0x'+'11'.repeat(20),walletEpoch:0,snapshot:null,transactionPending:false} as ReturnType<typeof useLedger>;
+  wallet={account:'0x'+'11'.repeat(20),role:'manager',networkOk:true,isV2Manager:true,v2Owner:'0x'+'11'.repeat(20),walletEpoch:0,snapshot:null,events:[],transactionPending:false} as unknown as ReturnType<typeof useLedger>;
   registry={configured:true,authenticated:false,busy:false,error:null,isManager:false,signIn:vi.fn(),request:vi.fn()} as unknown as ReturnType<typeof useRegistry>;
   read=vi.fn().mockResolvedValue(undefined);
   vi.mocked(useLedger).mockImplementation(()=>wallet);vi.mocked(useRegistry).mockImplementation(()=>registry);
@@ -22,16 +23,17 @@ beforeEach(()=>{
 });
 afterEach(cleanup);
 describe('manager public/private boundary',()=>{
-  it('keeps legacy V1 financial reporting available separately from the new public V2 report',()=>{
-    wallet.legacyRole='manager';render(<Reports/>);
-    expect(screen.getByText('Existing V1 financial reports and illustrations')).toBeTruthy();
-    expect(screen.getByRole('heading',{name:'V2 fund financial reporting'})).toBeTruthy();
+  it('merges fund figures, requests and financial reports on one manager page',()=>{
+    wallet.legacyRole='manager';vi.mocked(usePublicReport).mockReturnValue({read,error:'',loading:false,report:null});render(<Reports/>);
+    for(const label of ['Fund NAV','NAV per RLU','Fund capital','Income earned','Available funds','Receivables from SMEs'])expect(screen.getByText(label,{selector:'.metric > span'})).toBeTruthy();
+    expect(screen.getByRole('heading',{name:'How the NAV is built'})).toBeTruthy();
+    expect(screen.getByRole('heading',{name:'Invoice income'})).toBeTruthy();
     expect(registry.request).not.toHaveBeenCalled();expect(registry.signIn).not.toHaveBeenCalled();
   });
   it('loads manager Home public reports without any private sign-in or request',()=>{
     render(<Dashboard/>);
-    expect(screen.getByRole('heading',{name:'Fund Manager dashboard'})).toBeTruthy();expect(screen.getByText('V2 fund NAV')).toBeTruthy();
-    expect(read).toHaveBeenCalled();expect(registry.signIn).not.toHaveBeenCalled();expect(registry.request).not.toHaveBeenCalled();
+    expect(screen.getByRole('heading',{name:'Fund Manager dashboard'})).toBeTruthy();expect(screen.getByText('Fund NAV')).toBeTruthy();
+    expect(registry.signIn).not.toHaveBeenCalled();expect(registry.request).not.toHaveBeenCalled();
     expect(screen.queryByRole('button',{name:'Verify Fund Manager Wallet'})).toBeNull();
   });
   it('requires a single explicit manager verification action before requesting applications',()=>{

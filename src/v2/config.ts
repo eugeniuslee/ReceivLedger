@@ -10,5 +10,5 @@ export function resolveV2Address(value?: string): string {
   try {
     if (getAddress(address).toLowerCase() === deployment.address.toLowerCase()) return getAddress(address);
   } catch { /* Report configuration failure without substituting V1. */ }
-  throw new Error('VITE_V2_CONTRACT_ADDRESS must match the verified ReceivLedger V2 Sepolia address.');
+  throw new Error('VITE_V2_CONTRACT_ADDRESS must match the verified ReceivLedger fund Sepolia address.');
 }

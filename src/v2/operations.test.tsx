@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ManagerOperations, ManagerOperationsView } from './ManagerOperations';
+import { ManagerOperations, ManagerOperationsView, ledgerFigures } from './ManagerOperations';
 import { operationsSummary, type FundReport } from './operations';
 import { concentrationReport, type ReportingInvoice } from './reporting';
 import { V2Ledger } from './V2Ledger';
@@ -74,8 +74,8 @@ describe('manager operations dashboard', () => {
     const nav = screen.getByLabelText('Scenario fund NAV (S$)') as HTMLInputElement;
     expect(nav.value).toBe(''); expect(nav.closest('details')?.open).toBe(false);
     expect(screen.queryByText(/10,000,000/)).toBeNull();
-    rendered.rerender(<ManagerOperationsView report={snapshot()} loading={false} error="" canRead refresh={vi.fn()}/>);
-    expect(screen.getByText('No active units')).toBeTruthy();
+    rendered.rerender(<ManagerOperationsView report={snapshot()} ledger={ledgerFigures({ availableFunds: 0n, totalSupply: 0n, blockNumber: 1, invoices: [] }, [], 0n)} loading={false} error="" canRead refresh={vi.fn()}/>);
+    expect(screen.getByText('No RLU issued')).toBeTruthy();
     expect(screen.getByText('No pending investment requests at this block.')).toBeTruthy();
   });
   it('reviews actual snapshot rows by type and keeps financial execution disabled', () => {
@@ -84,11 +84,11 @@ describe('manager operations dashboard', () => {
       {id: 8n, investor: other, cents: 100n, minimumUnits: 100n, funded: true, reviewed: true, status: 3n}];
     report.redemptions = [{id: 9n, investor: other, units: 250n, minimumCents: 0n, payoutCents: 0n, status: 0n}];
     report.invoices = [invoice(10n)]; view(report);
-    expect(screen.getByRole('button', {name: 'Investment Requests 1'})).toBeTruthy();
+    expect(screen.getByRole('button', {name: 'Subscription Requests 1'})).toBeTruthy();
     expect(screen.queryByRole('button', {name: 'Review investment request 8'})).toBeNull();
     fireEvent.click(screen.getByRole('button', {name: 'Review investment request 7'}));
     expect(screen.getByRole('article', {name: 'Selected request review'}).textContent).toContain('Funding not confirmed');
-    expect((screen.getByRole('button', {name: 'Confirm simulated funding'}) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', {name: 'Confirm funding'}) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByLabelText('Pending only'));
     expect(screen.getByRole('button', {name: 'Review investment request 8'})).toBeTruthy();
     fireEvent.click(screen.getByRole('button', {name: 'Redemption Requests 1'}));
@@ -101,7 +101,7 @@ describe('manager operations dashboard', () => {
   });
   it('keeps scenario calculations separate from the displayed fund snapshot', () => {
     view();
-    const navMetric = screen.getByText('V2 fund NAV').closest('.metric')!;
+    const navMetric = screen.getByText('Fund NAV').closest('.metric')!;
     const before = navMetric.textContent;
     fireEvent.click(screen.getByText('Scenario Analysis'));
     fireEvent.change(screen.getByLabelText('Scenario fund NAV (S$)'), {target: {value: '10000000'}});
@@ -119,11 +119,11 @@ describe('manager operations dashboard', () => {
     expect(read).toHaveBeenCalledWith(wallet);
     rendered.rerender(<ManagerOperations wallet={other} epoch={1} networkOk/>);
     await act(async () => pending[0](snapshot()));
-    expect(screen.queryByText('Blockchain snapshot · block 123')).toBeNull();
+    expect(screen.getByText(/Requests are unavailable until/)).toBeTruthy();
     await act(async () => pending[1]({...snapshot(), wallet: other}));
-    expect(screen.getByText('Blockchain snapshot · block 123')).toBeTruthy();
+    expect(screen.queryByText(/Requests are unavailable until/)).toBeNull();
     rendered.rerender(<ManagerOperations wallet={other} epoch={2} networkOk={false}/>);
-    expect(screen.queryByText('Blockchain snapshot · block 123')).toBeNull();
+    expect(screen.getByText(/Requests are unavailable until/)).toBeTruthy();
     expect((screen.getByRole('button', {name: 'Refresh fund data'}) as HTMLButtonElement).disabled).toBe(true);
   });
   it('fails closed on a bad deployment override and shows a recoverable RPC failure', () => {
@@ -133,6 +133,6 @@ describe('manager operations dashboard', () => {
     expect(read).not.toHaveBeenCalled(); expect(screen.getByRole('alert').textContent).toContain('must match the verified');
     rendered.rerender(<ManagerOperationsView report={null} loading={false} error="RPC unavailable" canRead refresh={vi.fn()}/>);
     expect(screen.getByRole('alert').textContent).toContain('RPC unavailable');
-    expect(within(screen.getByRole('region', {name: 'V2 fund overview'})).getAllByText('Unavailable')).toHaveLength(4);
+    expect(within(screen.getByRole('region', {name: 'Fund overview'})).getAllByText('Unavailable')).toHaveLength(4);
   });
 });

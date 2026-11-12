@@ -15,7 +15,9 @@ async function asUser<T>(index: number, operation: () => Promise<T>): Promise<T>
   try { return await operation(); } finally { await db.exec('reset role'); }
 }
 async function apply(index = 1, kind = 'sme') {
-  return asUser(index, async () => (await db.query<{ id: string }>("select * from public.rl_submit_application($1,'Demo Company','DEMO-123','demo@example.test','DEMO-123',$2::jsonb)", [kind, JSON.stringify({ country: 'Demo country', website: '', business_address: 'Fictional address', contact_name: 'Demo contact' })])).rows[0]);
+  // Registered names are unique, so each fixture user gets its own name.
+  const name = index === 1 ? 'Demo Company' : `Demo Company ${index}`;
+  return asUser(index, async () => (await db.query<{ id: string }>("select * from public.rl_submit_application($1,$3,'DEMO-123','demo@example.test','DEMO-123',$2::jsonb)", [kind, JSON.stringify({ country: 'Demo country', website: '', business_address: 'Fictional address', contact_name: 'Demo contact' }), name])).rows[0]);
 }
 async function seedKyc(app: string, owner = ids[1], verified = true) {
   const id = '30000000-0000-0000-0000-000000000001';
@@ -52,6 +54,9 @@ beforeAll(async () => {
   await db.exec(readFileSync(new URL('../../supabase/migrations/202610220001_registration_documents.sql', import.meta.url), 'utf8'));
   await db.exec(readFileSync(new URL('../../supabase/migrations/202610220002_private_document_delete_guard.sql', import.meta.url), 'utf8'));
   await db.exec(readFileSync(new URL('../../supabase/migrations/202610220003_application_onboarding.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../../supabase/migrations/202611120001_unique_display_names.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../../supabase/migrations/202611120002_fund_requests.sql', import.meta.url), 'utf8'));
+  await db.exec(readFileSync(new URL('../../supabase/migrations/202611120003_repayment_proofs.sql', import.meta.url), 'utf8'));
   for (let index = 0; index < ids.length; index++) {
     await db.query('insert into auth.users values($1)', [ids[index]]);
     await db.query("insert into auth.identities values($1,'web3',$2)", [ids[index], `web3:ethereum:${[manager, alice, bob][index]}`]);
@@ -60,13 +65,68 @@ beforeAll(async () => {
   }
 }, 30000);
 beforeEach(async () => {
-  await db.exec('reset role; truncate public.rl_review_audit,public.rl_documents,public.rl_applications,public.rl_profiles,storage.objects restart identity cascade;');
+  await db.exec('reset role; truncate public.rl_review_audit,public.rl_fund_requests,public.rl_documents,public.rl_applications,public.rl_profiles,storage.objects restart identity cascade;');
   await db.query('update public.rl_config set manager_wallet=$1', [manager]);
   for (let index = 0; index < ids.length; index++) await asUser(index, () => db.query('select public.rl_ensure_profile()'));
 });
 afterAll(async () => { await db?.close(); });
 
 describe('actual PostgreSQL migration, grants and row-level security', () => {
+  it('keeps registered names unique, ignoring case and spaces, on submit and rename', async () => {
+    await apply(1);
+    await expect(asUser(2, () => db.query("select public.rl_submit_application('sme','  demo COMPANY ','DEMO-123','demo@example.test','DEMO-123',$1::jsonb)", [JSON.stringify({ country: 'Demo country', website: '', business_address: 'Fictional address', contact_name: 'Demo contact' })]))).rejects.toThrow(/rl_applications_display_name_unique/);
+    await apply(2);
+    await expect(db.query("select public.rl_rename_application($1,'DEMO company')", [ids[2]])).rejects.toThrow(/already used/);
+    const renamed = await db.query<{ display_name: string; version: number }>("select display_name,version from public.rl_rename_application($1,'  Fresh Name  ')", [ids[2]]);
+    expect(renamed.rows[0]).toEqual({ display_name: 'Fresh Name', version: 2 });
+    await expect(db.query("select public.rl_rename_application($1,'X')", [ids[2]])).rejects.toThrow(/2 to 100/);
+  });
+  it('keeps fund requests private to the investor and visible to the manager', async () => {
+    const own = await db.query<{ id: string; status: string }>("select id,status from public.rl_create_fund_request($1,$2,'subscription',500)", [ids[1], alice]);
+    expect(own.rows[0].status).toBe('pending');
+    await db.query("select public.rl_create_fund_request($1,$2,'redemption',20)", [ids[2], bob]);
+    expect((await asUser(1, () => db.query('select kind from public.rl_fund_requests'))).rows).toEqual([{ kind: 'subscription' }]);
+    expect((await asUser(2, () => db.query('select kind from public.rl_fund_requests'))).rows).toEqual([{ kind: 'redemption' }]);
+    expect((await asUser(0, () => db.query('select kind from public.rl_fund_requests'))).rows).toHaveLength(2);
+    await expect(asUser(1, () => db.query("insert into public.rl_fund_requests(user_id,wallet,kind,amount) values($1,$2,'subscription',1)", [ids[1], alice]))).rejects.toThrow(/permission denied/);
+    await expect(asUser(1, () => db.query("select public.rl_create_fund_request($1,$2,'subscription',1)", [ids[1], alice]))).rejects.toThrow(/permission denied/);
+  });
+  it('lets only the owner cancel a pending fund request', async () => {
+    const request = (await db.query<{ id: string }>("select id from public.rl_create_fund_request($1,$2,'subscription',100)", [ids[1], alice])).rows[0];
+    await expect(db.query('select public.rl_cancel_fund_request($1,$2)', [request.id, ids[2]])).rejects.toThrow(/own pending/);
+    expect((await db.query<{ status: string }>('select status from public.rl_cancel_fund_request($1,$2)', [request.id, ids[1]])).rows[0].status).toBe('cancelled');
+    await expect(db.query('select public.rl_cancel_fund_request($1,$2)', [request.id, ids[1]])).rejects.toThrow(/own pending/);
+  });
+  it('moves fund requests through approve and complete, and requires a reason to reject', async () => {
+    const request = (await db.query<{ id: string }>("select id from public.rl_create_fund_request($1,$2,'subscription',100)", [ids[1], alice])).rows[0];
+    await expect(db.query("select public.rl_decide_fund_request($1,1,$2,'rejected','',null)", [request.id, ids[0]])).rejects.toThrow(/reason/);
+    const approved = (await db.query<{ status: string; version: number }>("select status,version from public.rl_decide_fund_request($1,1,$2,'approved','Payment received',null)", [request.id, ids[0]])).rows[0];
+    expect(approved).toEqual({ status: 'approved', version: 2 });
+    await expect(db.query("select public.rl_decide_fund_request($1,1,$2,'completed','',null)", [request.id, ids[0]])).rejects.toThrow(/changed or was already decided/);
+    const hash = '0x' + 'ab'.repeat(32);
+    const done = (await db.query<{ status: string; tx_hash: string }>("select status,tx_hash from public.rl_decide_fund_request($1,2,$2,'completed','',$3)", [request.id, ids[0], hash])).rows[0];
+    expect(done).toEqual({ status: 'completed', tx_hash: hash });
+    await expect(db.query("select public.rl_decide_fund_request($1,3,$2,'rejected','Too late',null)", [request.id, ids[0]])).rejects.toThrow(/no longer be changed/);
+  });
+  it('limits each investor to five pending fund requests', async () => {
+    for (let index = 0; index < 5; index++) await db.query("select public.rl_create_fund_request($1,$2,'subscription',10)", [ids[1], alice]);
+    await expect(db.query("select public.rl_create_fund_request($1,$2,'subscription',10)", [ids[1], alice])).rejects.toThrow(/5 pending/);
+  });
+  it('accepts repayment proofs only for an invoice, and the manager can review them', async () => {
+    const insert = (id: string, purpose: string, invoice: string | null, app: string | null = null) => db.query(`insert into public.rl_documents(id,owner_id,application_id,invoice_id,purpose,filename,storage_path,byte_size,sha256)
+      values($1,$2,$3,$4,$5,'proof.pdf',$6,100,$7)`, [id, ids[1], app, invoice, purpose, `${ids[1]}/${id}.pdf`, 'b'.repeat(64)]);
+    await insert('40000000-0000-0000-0000-000000000001', 'repayment', '6');
+    await expect(insert('40000000-0000-0000-0000-000000000002', 'repayment', null)).rejects.toThrow(/rl_documents_purpose_target/);
+    await expect(insert('40000000-0000-0000-0000-000000000003', 'receipt', '6')).rejects.toThrow(/rl_documents_purpose_check/);
+    expect((await asUser(0, () => db.query("select purpose from public.rl_documents where purpose='repayment'"))).rows).toHaveLength(1);
+    expect((await asUser(2, () => db.query("select purpose from public.rl_documents"))).rows).toHaveLength(0);
+    const reviewed = await db.query<{ status: string }>("select status from public.rl_review_document('40000000-0000-0000-0000-000000000001',1,$1,'verified','Payment received')", [ids[0]]);
+    expect(reviewed.rows[0].status).toBe('verified');
+  });
+  it('lets only the service role rename applications', async () => {
+    await apply(1);
+    await expect(asUser(1, () => db.query("select public.rl_rename_application($1,'Self Rename')", [ids[1]]))).rejects.toThrow(/permission denied/);
+  });
   it('stores the new private fields and excludes them from the shared directory', async () => {
     const app = await apply(); await seedKyc(app.id);
     const own = await asUser(1, () => db.query<{ details: { business_address: string }; submitted_at: string }>('select details,submitted_at from public.rl_applications'));

@@ -9,7 +9,8 @@ import { Invoices } from '../pages/Invoices';
 import { Dashboard } from '../pages/Dashboard';
 import { canAccessPage, navigationForRole } from '../chain/access';
 import type { ChainLedger, WalletRole } from '../chain/chainLedger';
-vi.mock('../chain/LedgerContext', () => ({ useLedger: vi.fn() }));
+vi.mock('../chain/LedgerContext', () => ({ useLedger: vi.fn(), useOptionalLedger: () => null }));
+vi.mock('../v2/usePublicReport', () => ({ usePublicReport: () => ({ report: null, loading: false, error: '', read: vi.fn() }) }));
 vi.mock('./FinanceContext', () => ({ useFinance: vi.fn() }));
 let wallet: ReturnType<typeof useLedger>;
 let finance: ReturnType<typeof useFinance>;
@@ -20,14 +21,15 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('reporting access and scenario isolation', () => {
-  it('keeps repaid SME invoices out of outstanding principal and marks only financed records overdue on Home', () => {
+  it('keeps repaid SME invoices out of the amount owed and marks only financed records overdue on Home', () => {
     wallet.role = 'sme';
     const invoices = [testInvoice({ status: 'Financed', amount: 120n, maturity: testNow - 86400n }), testInvoice({ id: 2n, status: 'Repaid', amount: 200n, maturity: testNow - 86400n })];
     wallet.snapshot = { role: 'sme', manager: '0xmanager', invoices };
     render(<Dashboard />);
-    const metric = screen.getByText('Outstanding financed principal').closest('.metric')!;
-    expect(within(metric as HTMLElement).getByText('S$120')).toBeTruthy();
-    expect(within(screen.getByText('Repaid invoices').closest('.metric') as HTMLElement).getByText('1')).toBeTruthy();
+    // Owed on the financed S$120 invoice: 90% advance S$108 + S$0.12 fee (financing date not indexed, so no interest yet).
+    const metric = screen.getByText('Amount owed today').closest('.metric')!;
+    expect(within(metric as HTMLElement).getByText('S$108.12')).toBeTruthy();
+    expect(within(screen.getByText('Overdue repayments').closest('.review-card') as HTMLElement).getByText('1')).toBeTruthy();
     expect(screen.getAllByText('1 day(s) overdue')).toHaveLength(1);
     expect(screen.getByText('Maturity (SGT)')).toBeTruthy();
     expect(screen.getByText('Invoice face value')).toBeTruthy();
@@ -37,7 +39,7 @@ describe('reporting access and scenario isolation', () => {
     wallet.role = 'inactiveInvestor';
     wallet.snapshot = { role: 'inactiveInvestor', manager: '0xmanager', approved: false, connectedBalance: 250n };
     render(<Dashboard />);
-    expect(screen.getByText('Not approved')).toBeTruthy();
+    expect(screen.getByText(/not currently an approved investor/)).toBeTruthy();
     expect(screen.queryByText('Revoked')).toBeNull();
     expect(screen.getByText('25.00%')).toBeTruthy();
   });
@@ -55,13 +57,11 @@ describe('reporting access and scenario isolation', () => {
     expect(canAccessPage(role, 'reports')).toBe(false); expect(navigationForRole(role).some(item => item.id === 'reports')).toBe(false);
     render(<Reports />); expect(screen.queryByRole('heading', { name: 'Fund financial reporting' })).toBeNull();
   });
-  it('never substitutes a sample fund when RPC data is missing, but allows a labelled what-if', () => {
+  it('never substitutes a sample fund when RPC data is missing', () => {
     finance = { ...finance, data: null, error: 'RPC failed' };
     render(<Reports />);
-    expect(screen.getByText(/Live fund data is required/)).toBeTruthy(); expect(screen.queryByText('S$1,000.00')).toBeNull();
-    expect(screen.getByRole('alert').textContent).toContain('No substitute balances');
-    fireEvent.change(screen.getByLabelText('Hypothetical invoice face value (S$)'), { target: { value: '1000' } });
-    expect(screen.getByText('S$800.00')).toBeTruthy(); expect(screen.getByText('S$17.89')).toBeTruthy();
+    expect(screen.getByText(/Fund records could not be loaded: RPC failed/)).toBeTruthy(); expect(screen.queryByText('S$1,000.00')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
     expect(wallet.runTransaction).not.toHaveBeenCalled();
   });
   it.each(['investor', 'inactiveInvestor'] as const)('shows same-block holdings and an editable NAV illustration for %s without transactions', role => {

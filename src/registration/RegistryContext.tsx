@@ -16,11 +16,13 @@ interface RegistryContextValue {
   signIn: () => Promise<void>; signOut: () => Promise<void>; reload: () => Promise<void>;
   request: <T>(input: Record<string, unknown> | FormData) => Promise<T>;
   displayName: (wallet: string) => string | null;
+  /** True when another approved participant already uses this name (case- and space-insensitive). The server enforces this for all applicants. */
+  nameInUse?: (name: string) => boolean;
 }
 const unavailable = async (): Promise<never> => { throw new Error('Sign in after configuring Supabase.'); };
 const fallback: RegistryContextValue = { configured: false, authenticated: false, busy: false, error: null,
   frontendConfigurationError: registryConfigurationError,
-  application: null, registeredName: null, isManager: false, signIn: unavailable, signOut: async () => {}, reload: async () => {}, request: unavailable, displayName: () => null };
+  application: null, registeredName: null, isManager: false, signIn: unavailable, signOut: async () => {}, reload: async () => {}, request: unavailable, displayName: () => null, nameInUse: () => false };
 const RegistryContext = createContext<RegistryContextValue>(fallback);
 const signOutFailure = 'Private data cleared here, but server sign-out failed. Reconnect to retry.';
 class SessionMismatch extends Error {}
@@ -268,7 +270,8 @@ export function RegistryProvider({ children, client = registryClient }: { childr
     error: error ?? (client ? null : registryConfigurationError), application: authenticated?.application ?? null,
     registeredName: authenticated?.application?.display_name ?? null, isManager: authenticated?.isManager ?? false,
     signIn, signOut, reload, request,
-    displayName: wallet => authenticated?.names.find(name => sameWallet(name.wallet, wallet))?.display_name ?? null };
+    displayName: wallet => authenticated?.names.find(name => sameWallet(name.wallet, wallet))?.display_name ?? null,
+    nameInUse: candidate => { const key = candidate.trim().toLowerCase(); return Boolean(key) && Boolean(authenticated?.names.some(name => !sameWallet(name.wallet, account) && name.display_name.trim().toLowerCase() === key)); } };
   return <RegistryContext.Provider value={value}>{children}</RegistryContext.Provider>;
 }
 export function useRegistry() { return useContext(RegistryContext); }

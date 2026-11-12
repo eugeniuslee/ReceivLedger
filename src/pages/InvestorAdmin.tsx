@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isAddress } from 'ethers';
 import { useLedger } from '../chain/LedgerContext';
 import { discoverInvestorAddresses, ownershipDisplay, type InvestorAccount } from '../chain/chainLedger';
-import { formatInteger } from '../chain/presentation';
+import { compactAddress, formatInteger } from '../chain/presentation';
+import { useRegistry } from '../registration/RegistryContext';
 import { WalletName } from '../components/WalletName';
 
 interface ActionNotice {
@@ -94,13 +95,18 @@ export function InvestorAdmin() {
 
   const knownAddressSet = useMemo(() => new Set(addresses.map(address => address.toLowerCase())), [addresses]);
   const visibleAccounts = accounts.filter(item => knownAddressSet.has(item.address.toLowerCase()));
+  const { displayName } = useRegistry();
+  // Live filter by investor name or wallet as the manager types.
+  const query = addressInput.trim().toLowerCase();
+  const filteredAccounts = query ? visibleAccounts.filter(item => item.address.toLowerCase().includes(query) || (displayName(item.address) ?? '').toLowerCase().includes(query)) : visibleAccounts;
 
   async function lookUpAddress(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPageError('');
     setActionNotice(null);
     const candidate = addressInput.trim();
-    if (!isAddress(candidate)) { setPageError('Enter a valid Ethereum wallet address.'); return; }
+    // Partial text is a live filter; the table shows "No investors match" instead of an error.
+    if (!isAddress(candidate)) return;
     if (candidate.toLowerCase() === '0x0000000000000000000000000000000000000000') { setPageError('The zero address is not an investor wallet.'); return; }
     setManualAddresses(previous => previous.some(item => item.toLowerCase() === candidate.toLowerCase()) ? previous : [...previous, candidate]);
     setSelectedAddress(candidate);
@@ -199,15 +205,14 @@ export function InvestorAdmin() {
 
   return <>
     <section className="metric-grid investor-metrics">
-      <div className="metric emphasis"><span>Total RLU supply</span><strong>{formatInteger(managerSnapshot.totalSupply)} RLU</strong><small>On-chain ERC-20 totalSupply · 0 decimals</small></div>
+      <div className="metric emphasis"><span>Total RLU supply</span><strong>{formatInteger(managerSnapshot.totalSupply)} RLU</strong><small>On-chain</small></div>
       <div className="metric"><span>Discovered wallets</span><strong>{visibleAccounts.length}</strong><small>Known wallets, not an enumerable registry</small></div>
-      <div className="metric"><span>Index status</span><strong>{eventIndexComplete ? 'Indexed' : eventsLoading ? 'Indexing' : 'Partial'}</strong><small>Approval, issuance and Transfer event history</small></div>
     </section>
     <section className="section-block">
       <div className="section-heading"><div><span className="eyebrow">RLU fund units</span><h2>Investor ownership</h2></div>
         <form className="investor-lookup-form" onSubmit={event => void lookUpAddress(event)}>
-          <label className="sr-only" htmlFor="investor-wallet-address">Investor wallet address</label>
-          <input id="investor-wallet-address" value={addressInput} onChange={event => setAddressInput(event.target.value)} placeholder="Look up any wallet · 0x…" />
+          <label className="sr-only" htmlFor="investor-wallet-address">Search investors by name or wallet</label>
+          <input id="investor-wallet-address" type="search" value={addressInput} onChange={event => setAddressInput(event.target.value)} placeholder="Search name or wallet · 0x…" />
           <button className="btn" type="submit" disabled={lookupBusy}>{lookupBusy ? 'Looking up…' : 'Look up wallet'}</button>
         </form>
       </div>
@@ -215,10 +220,11 @@ export function InvestorAdmin() {
       {pageError && <div className="notice error" role="alert">{pageError}</div>}
       {actionNotice && <div className={`notice ${actionNotice.tone === 'success' ? 'info' : actionNotice.tone === 'error' ? 'error' : 'pending'}`} role="status">{actionNotice.message}</div>}
       {eventsLoading && <p className="sub" role="status">Updating cached investor discovery… Current rows remain visible.</p>}
-      {visibleAccounts.length ? <div className="table-scroll"><table className="investor-table"><thead><tr><th>Investor wallet</th><th>Approval</th><th>RLU balance</th><th>Supply ownership</th><th>Action</th></tr></thead>
-        <tbody>{visibleAccounts.map(item => <tr key={item.address} className="investor-row" tabIndex={0} onClick={() => setSelectedAddress(item.address)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedAddress(item.address); } }}>
-          <td><button className="investor-address" onClick={event => { event.stopPropagation(); setSelectedAddress(item.address); }}><WalletName address={item.address} full /></button></td>
-          <td><span className={`status ${item.approved ? 'approved' : 'rejected'}`}>{item.approved ? 'Approved' : 'Revoked / not approved'}</span></td>
+      {visibleAccounts.length && !filteredAccounts.length ? <div className="empty-state compact">No investors match “{addressInput.trim()}”.{isAddress(addressInput.trim()) ? ' Press Look up wallet to read this address from Sepolia.' : ''}</div>
+      : visibleAccounts.length ? <div className="table-scroll"><table className="investor-table"><thead><tr><th>Investor name</th><th>Investor wallet</th><th>RLU balance</th><th>Ownership</th><th>Action</th></tr></thead>
+        <tbody>{filteredAccounts.map(item => <tr key={item.address} className="investor-row" tabIndex={0} onClick={() => setSelectedAddress(item.address)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedAddress(item.address); } }}>
+          <td>{displayName(item.address) ?? <span className="sub">Name unavailable</span>}</td>
+          <td><button className="investor-address mono" title={item.address} onClick={event => { event.stopPropagation(); setSelectedAddress(item.address); }}>{compactAddress(item.address)}</button></td>
           <td>{formatInteger(item.balance)} RLU</td>
           <td>{ownershipDisplay(item.balance, managerSnapshot.totalSupply, holdingsComplete) ?? 'Partial index'}</td>
           <td><button className="btn small outline" onClick={event => { event.stopPropagation(); setSelectedAddress(item.address); }}>Details</button></td>
@@ -279,6 +285,6 @@ function InvestorDetails({ address, investor, loading, complete, totalSupply, is
       {investor.approved && <div className="issue-inline"><label>Issue RLU<input type="number" min="1" step="1" value={issueAmount} onChange={event => setIssueAmount(event.target.value)} /></label><button className="btn" onClick={onIssue} disabled={transactionPending || loading}>Issue fund units</button></div>}
     </div>}
     {loading && <p className="sub" role="status">Reading current status and holdings from Sepolia…</p>}
-    <p className="footnote">Approval and ownership are separate: revoking approval does not remove previously issued RLU. RLU issuance updates simulated accounting only; it does not collect SGD or SepoliaETH.</p>
+    <p className="footnote">Approval and ownership are separate: revoking approval does not remove previously issued RLU. RLU issuance updates fund accounting only; it does not collect SGD or SepoliaETH.</p>
   </section>;
 }

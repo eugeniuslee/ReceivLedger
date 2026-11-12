@@ -18,7 +18,7 @@ export interface Application {
 }
 export interface PrivateDocument {
   id: string; owner_id: string; application_id: string | null; invoice_id: string | null;
-  purpose: 'kyc' | 'invoice'; filename: string; storage_path: string; byte_size: number;
+  purpose: 'kyc' | 'invoice' | 'repayment'; filename: string; storage_path: string; byte_size: number;
   sha256: string; status: DocumentStatus; version: number; review_note: string | null; created_at: string;
 }
 export interface WalletProfile { user_id: string; wallet: string }
@@ -67,6 +67,23 @@ export function assertApplicationReview(status: ApplicationStatus, version: numb
 export function assertReviewable(status: string, version: number, expected: number) {
   if (status !== 'pending') throw new RequestError('Only pending records can be reviewed.');
   if (!Number.isSafeInteger(expected) || version !== expected) throw new RequestError('This record changed. Refresh before reviewing.');
+}
+export type FundRequestKind = 'subscription' | 'redemption';
+export type FundRequestStatus = 'pending' | 'approved' | 'completed' | 'rejected' | 'cancelled';
+export interface FundRequest {
+  id: string; user_id: string; wallet: string; kind: FundRequestKind;
+  /** Whole S$ for subscriptions, whole RLU for redemptions. */
+  amount: number | string; status: FundRequestStatus; manager_note: string | null; tx_hash: string | null;
+  version: number; decided_at: string | null; created_at: string; updated_at: string;
+}
+export function fundRequestInput(value: unknown): { kind: FundRequestKind; amount: bigint } {
+  const v = value as { kind?: unknown; amount?: unknown } | null;
+  if (!v || (v.kind !== 'subscription' && v.kind !== 'redemption')) throw new RequestError('Choose a subscription or redemption.');
+  const text = typeof v.amount === 'number' ? String(v.amount) : v.amount;
+  if (typeof text !== 'string' || !/^[1-9]\d{0,9}$/.test(text)) throw new RequestError(v.kind === 'subscription' ? 'Enter a whole-dollar amount greater than zero.' : 'Enter a whole number of RLU greater than zero.');
+  const amount = BigInt(text);
+  if (amount > 1_000_000_000n) throw new RequestError('That amount is too large.');
+  return { kind: v.kind, amount };
 }
 export function assertManager(wallet: string, manager: string) {
   if (wallet.toLowerCase() !== manager.toLowerCase()) throw new RequestError('Fund manager access required.');

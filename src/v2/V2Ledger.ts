@@ -9,17 +9,17 @@ import { V2_EXECUTION_ENABLED, V2_EXECUTION_LOCK } from './activation';
 export class V2Ledger {
   readonly contract: Contract;
   constructor(address: string, runner: ContractRunner) {
-    if (!isAddress(address) || /^0x0{40}$/i.test(address) || address.toLowerCase() === RECEIVLEDGER_ADDRESS.toLowerCase()) throw new Error('An independently deployed V2 address is required.');
+    if (!isAddress(address) || /^0x0{40}$/i.test(address) || address.toLowerCase() === RECEIVLEDGER_ADDRESS.toLowerCase()) throw new Error('An independently deployed fund address is required.');
     this.contract = new Contract(address, abi, runner);
   }
   async readFund(wallet: string) {
     if (!isAddress(wallet)) throw new Error('Invalid wallet.');
     const provider = this.contract.runner?.provider;
-    if (!provider || (await provider.getNetwork()).chainId !== 11155111n) throw new Error('V2 reads require Sepolia.');
+    if (!provider || (await provider.getNetwork()).chainId !== 11155111n) throw new Error('Fund reads require Sepolia.');
     const blockTag = await provider.getBlockNumber();
     const names = ['MAX_FUND_CENTS','SME_CAP_CENTS','navCents','fundAssetsCents','liquidCents','freeLiquidityCents','outstandingCents','accruedInterestCents','bookedAccruedCents','earnedInterestCents','impairmentCents','pricingUnits','totalSupply','reservedRedemptionCents','financingCommitmentsCents','pendingSubscriptionCents','smeReservePoolCents','processingIncomeCents','collectedInterestCents','invoiceCount','subscriptionCount','redemptionCount','automationEnabled','paused','owner','valuationValidUntil'];
     const values = await Promise.all(names.map(name => this.contract.getFunction(name)({blockTag})));
-    if (values[0] !== 1_000_000_000n||values[1]!==10_000_000n) throw new Error('Unexpected V2 contract policy.');
+    if (values[0] !== 1_000_000_000n||values[1]!==10_000_000n) throw new Error('Unexpected fund contract policy.');
     const [units,approvedInvestor,verifiedSme] = await Promise.all(['balanceOf','investors','verifiedSmes'].map(name=>this.contract.getFunction(name)(wallet,{blockTag})));
     const entity = String(await this.contract.getFunction('investorEntities')(wallet,{blockTag}));
     const automaticUsedCents = BigInt(await this.contract.getFunction('automaticSubscriptionCents')(entity,{blockTag}));
@@ -29,7 +29,7 @@ export class V2Ledger {
     const snapshot=await this.readFund(wallet),provider=this.contract.runner!.provider!,blockTag=snapshot.blockTag;
     const block=await provider.getBlock(blockTag);if(!block)throw new Error('Reporting block unavailable');
     const invoiceCount=Number(snapshot.fund.invoiceCount),redemptionCount=Number(snapshot.fund.redemptionCount),subscriptionCount=Number(snapshot.fund.subscriptionCount);
-    if(invoiceCount>1000||redemptionCount>1000||subscriptionCount>1000)throw new Error('Complete report exceeds the prototype 1000-record bound. Use a reviewed indexer; partial totals are not displayed.');
+    if(invoiceCount>1000||redemptionCount>1000||subscriptionCount>1000)throw new Error('Complete report exceeds the 1000-record bound. Use a reviewed indexer; partial totals are not displayed.');
     const invoices:ReportingInvoice[]=[];
     const subscriptions:{id:bigint;investor:string;cents:bigint;minimumUnits:bigint;funded:boolean;reviewed:boolean;status:bigint}[]=[];
     const redemptions:{id:bigint;investor:string;units:bigint;minimumCents:bigint;payoutCents:bigint;status:bigint}[]=[];
@@ -76,11 +76,11 @@ export class V2Ledger {
     let tx;
     try{tx=await this.contract.getFunction(method)(...args);}catch(cause){
       const data=(cause as {data?:string}).data;
-      if(data){const error=this.contract.interface.parseError(data);if(error?.name==='PolicyViolation')throw new Error((policyErrors as Record<string,string>)[String(error.args[0])]??'V2 policy rejected');}
+      if(data){const error=this.contract.interface.parseError(data);if(error?.name==='PolicyViolation')throw new Error((policyErrors as Record<string,string>)[String(error.args[0])]??'Fund policy rejected');}
       throw cause;
     }
     const receipt=await tx.wait();
-    if (!receipt || receipt.status!==1) throw new Error('V2 transaction was not confirmed.');
+    if (!receipt || receipt.status!==1) throw new Error('Fund transaction was not confirmed.');
     return receipt;
   }
 }

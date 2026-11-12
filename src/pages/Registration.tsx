@@ -44,7 +44,7 @@ export function Welcome() {
     <h1>Register your ReceivLedger Account</h1><p>Connect your wallet to get started.</p>
     <button className="btn connect-primary" disabled={!walletAvailable || walletChecking || transactionPending} onClick={() => void connect()}>{walletChecking ? 'Checking wallet...' : 'Connect Your Wallet'}</button>
     {!walletAvailable && <p className="support-copy">MetaMask is unavailable. Install or enable it from the <a className="tx-link" href="https://metamask.io/download/" target="_blank" rel="noreferrer">official MetaMask website</a>.</p>}
-    <p className="footnote">University demonstration on Ethereum Sepolia</p>
+    <p className="footnote">Ethereum Sepolia testnet</p>
   </section>;
 }
 
@@ -69,7 +69,7 @@ export function RegistrationSummary({ onNavigate }: { onNavigate: (page: PageId)
   const { role } = useLedger();
   const { application, authenticated, requiresRegistrationSession } = useRegistry();
   const access = registrationAccess(role, application, authenticated, requiresRegistrationSession);
-  if (role === 'manager') return <section className="section-block"><div className="section-heading"><h2>Application & document review</h2><button className="btn o small" onClick={() => onNavigate('applications')}>Review applications</button></div><p className="support-copy">Review fictional KYC, approve investor access on Sepolia, and verify SMEs off-chain.</p></section>;
+  if (role === 'manager') return null; // Managers reach applications from Home's "Needs your review" box.
   return <section className="section-block"><div className="section-heading"><h2>{application?.display_name ?? 'Your ReceivLedger profile'}</h2><button className="btn o small" onClick={() => onNavigate('registration')}>{application ? 'View application' : 'Register or sign in'}</button></div>
     {application && <ApplicationStatus application={application} />}
     {application && application.status !== 'approved' && <p className="notice warning">{access.reason}</p>}
@@ -113,7 +113,7 @@ function RegistrationForm({ initialKind, onSubmitted }: { initialKind: 'investor
   }
   return <section className="section-block account-page"><div className="section-heading"><h2>{application ? 'Your application' : 'Create your wallet-linked profile'}</h2><button className="btn o small" disabled={busy} onClick={() => void refreshApplication()}>{busy ? 'Working…' : 'Refresh application'}</button></div>
     {application && <><ApplicationStatus application={application} /><details><summary>Submitted information and review dates</summary><ApplicationDetails application={application} hideNote /></details></>}
-    <p className="support-copy">Use fictional names, contact details and company information for this university demonstration. Approved display names are shared with signed-in participants; contact details and company registration numbers remain private to you and the manager.</p>
+    <p className="support-copy">Use fictional names, contact details and company information. Approved display names are shared with signed-in participants; contact details and company registration numbers remain private to you and the manager.</p>
     <p className="support-copy">Fields marked with * are required. Your wallet is filled automatically. Supporting PDFs can be attached after saving.</p>
     <form className="registration-form" onSubmit={submit}>
       <label>Application type<select value={form.kind} disabled={Boolean(application) || busy} onChange={event => field('kind', event.target.value)}><option value="investor">Investor</option><option value="sme">SME</option></select></label>

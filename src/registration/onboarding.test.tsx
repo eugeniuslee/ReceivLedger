@@ -113,7 +113,7 @@ describe('new-wallet onboarding and secure registration forms', () => {
     expect(screen.getByRole('heading', { name: 'Investor application dashboard' })).toBeTruthy();
     expect(screen.getByText(/up to 3 working days/)).toBeTruthy();
     const navigation = within(screen.getByRole('navigation', { name: 'Main navigation' }));
-    fireEvent.click(navigation.getByRole('button', { name: /My Assets/ }));
+    fireEvent.click(navigation.getByRole('button', { name: /Portfolio/ }));
     expect(screen.getByText(/Manager verification is pending/)).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Transfer unavailable' }) as HTMLButtonElement).disabled).toBe(true);
     expect(wallet.role).toBe('provisional'); expect(wallet.runTransaction).not.toHaveBeenCalled();
@@ -221,10 +221,10 @@ describe('restructured onboarding and navigation regressions', () => {
     wallet.role = 'sme';
     render(<LedgerApp />);
     const nav = within(screen.getByRole('navigation', { name: 'Main navigation' }));
-    expect(nav.getAllByRole('button').map(button => button.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual(['Home', 'My Invoices', 'Submit Invoice', 'Transaction History', 'Financing & Fund Requests']);
+    expect(nav.getAllByRole('button').map(button => button.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual(['Home', 'Request Funds', 'My Invoices', 'Repayments', 'Cost Calculator', 'Transaction History']);
     fireEvent.click(nav.getByRole('button', { name: /My Invoices/ }));
     expect(screen.queryByRole('button', { name: 'Submit invoice' })).toBeNull();
-    fireEvent.click(nav.getByRole('button', { name: /Submit Invoice/ }));
+    fireEvent.click(nav.getByRole('button', { name: /Request Funds/ }));
     expect(screen.getByRole('button', { name: 'Submit invoice' })).toBeTruthy();
     expect(wallet.runTransaction).not.toHaveBeenCalled();
   });

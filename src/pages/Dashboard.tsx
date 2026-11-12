@@ -1,116 +1,77 @@
+import { useRegistry } from '../registration/RegistryContext';
+import { invoiceWork, useReviewCounts } from '../chain/ReviewCounts';
 import { useLedger } from '../chain/LedgerContext';
+import type { PageId } from '../chain/access';
 import { PublicManagerDashboard } from '../v2/ManagerDashboard';
-import type { ChainInvoice, FundSnapshot, InactiveInvestorSnapshot, InvestorSnapshot, ProvisionalSnapshot, SmeSnapshot } from '../chain/chainLedger';
-import { formatInteger, formatMoney } from '../chain/presentation';
-import { WalletName } from '../components/WalletName';
-import { InvestorReporting, SmeCapacity, SmeFinancingAssessment } from './Reports';
-import { maturityState } from '../finance/models';
+import type { FundSnapshot, ProvisionalSnapshot } from '../chain/chainLedger';
+import { formatMoney } from '../chain/presentation';
+import { InvoiceSummary } from '../components/InvoiceSummary';
+import { SmeHome } from './Sme';
+import { InvestorHome } from './Investor';
 import { useFinance } from '../finance/FinanceContext';
-import { financialDate } from '../finance/presentation';
 
-export function Dashboard() {
+export function Dashboard({ onNavigate }: { onNavigate?: (page: PageId) => void } = {}) {
   const { snapshot, loading, networkOk, isV2Manager } = useLedger();
-  if (networkOk && isV2Manager) return <><PublicManagerDashboard />{snapshot?.role === 'manager' && <details className="model-controls"><summary>Existing V1 fund records</summary><ManagerDashboard snapshot={snapshot} /></details>}</>;
+  // One manager Home layout; fund NAV and receivables live on Fund & Financing.
+  if (networkOk && snapshot?.role === 'manager') return <ManagerDashboard snapshot={snapshot} onNavigate={onNavigate} />;
+  if (networkOk && isV2Manager) return <PublicManagerDashboard />;
   if (!networkOk) return <div className="empty-state">Connect to Sepolia to read your ReceivLedger view.</div>;
   if (loading && !snapshot) return <div className="empty-state">Loading wallet-specific contract data…</div>;
   if (!snapshot) return <div className="empty-state">Wallet data is unavailable. Refresh after checking your RPC connection.</div>;
   if (snapshot.role === 'manager') return <ManagerDashboard snapshot={snapshot} />;
-  if (snapshot.role === 'investor') return <InvestorDashboard snapshot={snapshot} />;
-  if (snapshot.role === 'inactiveInvestor') return <InactiveInvestorDashboard snapshot={snapshot} />;
+  if (snapshot.role === 'investor') return <InvestorHome onNavigate={onNavigate} />;
+  if (snapshot.role === 'inactiveInvestor') return <InvestorHome onNavigate={onNavigate} inactive />;
   if (snapshot.role === 'provisional') return <ProvisionalDashboard snapshot={snapshot} />;
-  return <SmeDashboard snapshot={snapshot} />;
+  return <SmeHome onNavigate={onNavigate} />;
 }
 
-function ManagerDashboard({ snapshot }: { snapshot: FundSnapshot }) {
+function ManagerDashboard({ snapshot, onNavigate }: { snapshot: FundSnapshot; onNavigate?: (page: PageId) => void }) {
+  const { now } = useFinance();
+  const counts = useReviewCounts();
+  const { authenticated } = useRegistry();
   const outstanding = snapshot.totalFundSize - snapshot.availableFunds;
-  const financed = snapshot.invoices.filter(invoice => invoice.status === 'Financed').length;
-  const repaid = snapshot.invoices.filter(invoice => invoice.status === 'Repaid').length;
-  const pending = snapshot.invoices.filter(invoice => invoice.status === 'Submitted').length;
-  const latest = [...snapshot.invoices].reverse().slice(0, 5);
+  const { invoicesToApprove: pending, invoicesToFinance: readyToFinance, overdue, dueSoon } = invoiceWork(snapshot.invoices, now);
+  const latest = [...snapshot.invoices].reverse();
+  const reviewItems: [string, string, number | null, PageId][] = [
+    ['Investor & SME applications', authenticated ? 'Pending KYC and company review' : 'Verify your wallet in Applications to see this count', counts.applications, 'applications'],
+    ['RLU subscription requests', 'Investors asking to buy RLU', counts.subscriptions, 'funds'],
+    ['RLU redemption requests', 'Investors asking to redeem RLU', counts.redemptions, 'funds'],
+    ['Repayment proofs to check', authenticated ? 'Uploaded by SMEs; verify, then record repayment' : 'Verify your wallet in Applications to see this count', counts.repaymentProofs ?? null, 'invoices'],
+    ['Invoices awaiting approval', 'Submitted by SMEs', pending, 'invoices'],
+    ['Approved invoices to finance', 'Approved, not yet financed', readyToFinance, 'invoices'],
+    ['Overdue invoices', 'Financed and past the due date', overdue, 'invoices'],
+    ['Repayments due within 7 days', 'Financed invoices nearing their due date', dueSoon, 'invoices'],
+  ];
+  const outstandingItems = reviewItems.filter(([, , count]) => count !== null && count > 0).length;
+  const availablePercent = snapshot.totalFundSize > 0n ? Number(snapshot.availableFunds * 100n / snapshot.totalFundSize) : 0;
   const metrics = [
-    ['Total fund size', formatMoney(snapshot.totalFundSize), 'Simulated S$ capital'],
-    ['Available funds', formatMoney(snapshot.availableFunds), 'Available for simulated financing'],
-    ['Outstanding', formatMoney(outstanding), 'Total fund size less available funds'],
+    ['Total fund size', formatMoney(snapshot.totalFundSize), 'Issued S$ capital'],
+    ['Available funds', formatMoney(snapshot.availableFunds), 'Available for financing'],
+    ['Outstanding', formatMoney(outstanding), 'Currently financed'],
     ['Invoices', snapshot.invoiceCount.toString(), `${pending} awaiting review`],
   ];
   return <>
     <section className="metric-grid" aria-label="Fund summary">{metrics.map(([label, value, detail], index) => <div className={`metric${index === 0 ? ' emphasis' : ''}`} key={label}><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>)}</section>
-    <section className="dashboard-grid">
-      <div className="section-block"><h3>Fund manager overview</h3><dl className="detail-list">
-        <div><dt>Fund manager wallet</dt><dd className="mono">{snapshot.manager}</dd></div>
-        <div><dt>Connected RLU balance</dt><dd>{formatInteger(snapshot.connectedBalance)} RLU</dd></div>
-        <div><dt>Financed invoices</dt><dd>{financed}</dd></div><div><dt>Repaid invoices</dt><dd>{repaid}</dd></div>
-      </dl></div>
-      <div className="section-block"><h3>Fund accounting</h3><p className="support-copy">Financing and repayment update simulated S$ balances only. No SGD or ETH is transferred. RLU has 0 decimals.</p>
-        <div className="accounting-bar"><div style={{ width: snapshot.totalFundSize > 0n ? `${Number(snapshot.availableFunds * 100n / snapshot.totalFundSize)}%` : '0%' }} /></div>
-        <div className="bar-legend"><span>Available {formatMoney(snapshot.availableFunds)}</span><span>Outstanding {formatMoney(outstanding)}</span></div>
+    <section className="section-block fund-accounting" aria-labelledby="fund-accounting-title"><h3 id="fund-accounting-title">Fund accounting</h3>
+      <div className="accounting-bar" role="img" aria-label={`${availablePercent}% available, ${100 - availablePercent}% financed`}><div style={{ width: `${availablePercent}%` }} /></div>
+      <div className="bar-legend"><span><i className="legend-dot available" />Available {formatMoney(snapshot.availableFunds)} · {availablePercent}%</span><span><i className="legend-dot financed" />Financed {formatMoney(outstanding)} · {100 - availablePercent}%</span></div>
+    </section>
+    <section className="section-block" aria-labelledby="manager-review-title"><h3 id="manager-review-title">Needs your review</h3>
+      {outstandingItems === 0 && <p className="support-copy">Nothing needs your review right now.</p>}
+      <div className="review-grid">
+        {reviewItems.map(([label, detail, count, page]) => { const active = count === null ? page === 'applications' : count > 0; return <div key={label} className={`review-card${count ? ' active' : ''}`}>
+          <span className="review-label">{label}</span><strong>{count ?? '—'}</strong><small className="document-meta">{detail}</small>
+          {active && onNavigate && <button className="btn o small" onClick={() => onNavigate(page)} aria-label={`Review ${label.toLowerCase()}`}>Review</button>}
+        </div>; })}
       </div>
     </section>
-    <InvoiceSummary invoices={latest} title="Latest invoices" empty="No invoices have been submitted on this contract." />
-  </>;
-}
-
-function InvestorDashboard({ snapshot }: { snapshot: InvestorSnapshot }) {
-  return <>
-    <section className="metric-grid investor-metrics">
-      <div className="metric emphasis"><span>Your RLU balance</span><strong>{formatInteger(snapshot.connectedBalance)} RLU</strong><small>Connected wallet · 0 decimals</small></div>
-      <div className="metric"><span>Investor approval</span><strong>{snapshot.approved ? 'Approved' : 'Not approved'}</strong><small>Read from approvedInvestors(your wallet)</small></div>
-    </section>
-    <section className="section-block"><h3>Investor account</h3><p className="support-copy">Use the Transfer RLU page to send tokens from this wallet. Transfer rules require both wallets to be approved investors.</p></section>
-    <InvestorReporting />
-  </>;
-}
-
-function SmeDashboard({ snapshot }: { snapshot: SmeSnapshot }) {
-  const { now } = useFinance();
-  const submitted = snapshot.invoices.length;
-  const active = snapshot.invoices.filter(invoice => invoice.status === 'Submitted' || invoice.status === 'Approved' || invoice.status === 'Financed').length;
-  const outstanding = snapshot.invoices.filter(invoice => invoice.status === 'Financed').reduce((sum, invoice) => sum + invoice.amount, 0n);
-  const repaid = snapshot.invoices.filter(invoice => invoice.status === 'Repaid').length;
-  const totalFinanced = snapshot.invoices.filter(invoice => invoice.status === 'Financed' || invoice.status === 'Repaid').reduce((sum, invoice) => sum + invoice.amount, 0n);
-  const upcoming = snapshot.invoices.filter(invoice => invoice.status === 'Financed' && invoice.maturity > now).sort((a, b) => a.maturity < b.maturity ? -1 : a.maturity > b.maturity ? 1 : 0).slice(0, 5);
-  return <>
-    <section className="metric-grid">
-      <div className="metric emphasis"><span>Your submitted invoices</span><strong>{submitted}</strong><small>Matched to this wallet from contract mappings</small></div>
-      <div className="metric"><span>Invoices in progress</span><strong>{active}</strong><small>Submitted, approved or financed</small></div>
-      <div className="metric"><span>Outstanding financed principal</span><strong>{formatMoney(outstanding)}</strong><small>Financed face value only · simulated accounting</small></div>
-      <div className="metric"><span>Repaid invoices</span><strong>{repaid}</strong><small>Closed records · excluded from outstanding</small></div>
-      <div className="metric"><span>Total financed face value</span><strong>{formatMoney(totalFinanced)}</strong><small>Financed and Repaid principal turnover · not income</small></div>
-    </section>
-    <InvoiceSummary invoices={snapshot.invoices.slice().reverse().slice(0, 8)} title="Your invoice status" empty="No invoices submitted by this wallet were found in contract mappings." />
-    <p className="footnote">Invoice ownership is matched to the SME address stored in the contract; this does not verify a real-world identity.</p>
-    <section className="section-block"><h2>Upcoming financed maturities</h2>{upcoming.length ? <ul>{upcoming.map(invoice => <li key={invoice.id.toString()}>Invoice #{invoice.id.toString()} · {financialDate(invoice.maturity)} SGT · {formatMoney(invoice.amount)}</li>)}</ul> : <p>No future maturities among this wallet's currently Financed invoices. Overdue records remain in My Invoices.</p>}</section>
-    <SmeCapacity />
-    <SmeFinancingAssessment />
-  </>;
-}
-
-function InvoiceSummary({ invoices, title, empty }: { invoices: ChainInvoice[]; title: string; empty: string }) {
-  const { now } = useFinance();
-  return <section className="section-block invoice-preview"><h3>{title}</h3>
-    {invoices.length ? <div className="table-scroll"><table><thead><tr><th>ID</th><th>Payer</th><th>Invoice face value</th><th>Maturity (SGT)</th><th>Status</th><th>SME wallet</th></tr></thead>
-      <tbody>{invoices.map(invoice => <tr key={invoice.id.toString()}><td>#{invoice.id.toString()}</td><td>{invoice.payer}</td><td>{formatMoney(invoice.amount)}</td><td>{financialDate(invoice.maturity)}</td><td><span className={`status ${invoice.status.toLowerCase()}`}>{invoice.status}</span><small className={`timing-label${maturityState(invoice, now).overdue ? ' late' : ''}`}>{maturityState(invoice, now).label}</small></td><td><WalletName address={invoice.sme} /></td></tr>)}</tbody>
-    </table></div> : <div className="empty-state compact">{empty}</div>}
-  </section>;
-}
-
-function InactiveInvestorDashboard({ snapshot }: { snapshot: InactiveInvestorSnapshot }) {
-  return <>
-    <section className="metric-grid investor-metrics">
-      <div className="metric emphasis"><span>Remaining RLU holdings</span><strong>{formatInteger(snapshot.connectedBalance)} RLU</strong><small>On-chain balance · RLU has 0 decimals</small></div>
-      <div className="metric"><span>Investor approval</span><strong>Not approved</strong><small>Read from approvedInvestors(your wallet)</small></div>
-    </section>
-    <section className="section-block"><h3>Investor account status</h3>
-      <p className="support-copy">This wallet is not currently approved. Revoking approval does not automatically redeem, transfer or burn RLU. Current approval alone does not establish whether approval was previously revoked. The contract does not provide an investor redemption function.</p>
-    </section>
-    <InvestorReporting />
+    <InvoiceSummary invoices={latest} title="Latest invoices" empty="No invoices have been submitted on this contract." collapsedCount={3} />
   </>;
 }
 
 function ProvisionalDashboard({ snapshot }: { snapshot: ProvisionalSnapshot }) {
   return <section className="section-block">
     <h3>Wallet role not established</h3>
-    <p className="support-copy">This wallet is not the fund manager, has no current investor approval, and has no verified investor or invoice history in the indexed records. ReceivLedger does not register user roles on-chain.</p>
-    <p className="footnote">No SME registration is implied. Existing roles can be identified only from the contract manager, current investor approval, historical investor events or invoices stored for this wallet.</p>
+    <p className="support-copy">This wallet has no fund manager, investor or SME role yet.</p>
   </section>;
 }

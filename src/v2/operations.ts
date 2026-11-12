@@ -12,7 +12,7 @@ export const pendingRedemption = (status: bigint) => [0n, 1n, 2n].includes(statu
 export const pendingInvoice = (status: bigint) => [0n, 1n, 2n].includes(status);
 export function requestAction(kind: 'investment' | 'redemption' | 'invoice', status: bigint) {
   const actions: Record<string, Record<string, string>> = {
-    investment: {0: 'Confirm simulated funding', 1: 'Approve investment', 2: 'Process investment', 5: 'Record refund'},
+    investment: {0: 'Confirm funding', 1: 'Approve investment', 2: 'Process investment', 5: 'Record refund'},
     redemption: {0: 'Approve redemption', 1: 'Allocate redemption liquidity', 2: 'Settle redemption'},
     invoice: {0: 'Review and approve invoice', 1: 'Finance invoice', 2: 'Finance invoice', 3: 'Record collection / repayment'},
   };
@@ -32,7 +32,7 @@ export function operationsSummary(report: FundReport) {
   for (const i of report.invoices) payers.set(i.payer, (payers.get(i.payer) ?? 0n) + i.principal + (i.commitment > 0n ? i.advance : 0n));
   const payerExposures = [...payers].filter(([, total]) => total > 0n).map(([payer, total]) => ({ payer, total, percentage: percentage(total, nav), exceedsLimit: total > nav / 10n }));
   const warnings: string[] = [];
-  if (report.fund.paused) warnings.push('The V2 contract is paused.');
+  if (report.fund.paused) warnings.push('The fund contract is paused.');
   if (BigInt(report.fund.liquidCents) < commitments + reservedExits) warnings.push('Fund cash is below approved financing commitments and allocated exits.');
   if (proposedExitValue !== null && proposedExitValue > freeLiquidity) warnings.push('Indicative pending redemption value exceeds available liquidity. Pending requests do not reserve cash.');
   if (awaitingRedemptions.length && proposedExitValue === null) warnings.push('Pending redemptions cannot be valued because there are no active pricing units.');

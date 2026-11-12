@@ -160,8 +160,8 @@ describe('role-scoped event filtering', () => {
 });
 
 describe('role page access', () => {
-  it('gives the manager the six requested management pages', () => {
-    expect(ROLE_PAGES.manager.map(page => page.id)).toEqual(['dashboard', 'reports', 'applications', 'investors', 'invoices', 'history']);
+  it('gives the manager the management pages in order', () => {
+    expect(ROLE_PAGES.manager.map(page => page.id)).toEqual(['dashboard', 'reports', 'funds', 'invoices', 'applications', 'investors', 'smes', 'history']);
   });
 
   it('keeps investor routes personal and hides invoice/global administration', () => {
@@ -186,7 +186,8 @@ describe('role page access', () => {
   });
 
   it('gives inactive investors personal history but no transfer or invoice route', () => {
-    expect(ROLE_PAGES.inactiveInvestor.map(page => page.id)).toEqual(['dashboard', 'assets', 'history']);
+    expect(ROLE_PAGES.inactiveInvestor.map(page => page.id)).toEqual(['dashboard', 'assets', 'performance', 'history']);
+    expect(canAccessPage('inactiveInvestor', 'invest')).toBe(false);
     expect(canAccessPage('inactiveInvestor', 'history')).toBe(true);
     expect(canAccessPage('inactiveInvestor', 'transfer')).toBe(false);
     expect(canAccessPage('inactiveInvestor', 'invoices')).toBe(false);

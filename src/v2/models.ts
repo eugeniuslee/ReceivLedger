@@ -26,7 +26,7 @@ export function v2Eligibility(faceCents: bigint, e: EligibilityEvidence) {
 export function subscriptionPreview(cents: bigint, nav: bigint, pricingUnits: bigint, approved: boolean, confirmed: boolean, reservedLiabilityCents = 0n, lifetimeAutomaticCents=0n) {
   if (cents < 100n || nav < 0n || pricingUnits < 0n || reservedLiabilityCents < 0n || lifetimeAutomaticCents < 0n) throw new Error('Invalid subscription or fund amounts.');
   if (!approved) return { decision: 'Investor approval required', units: null };
-  if (!confirmed) return { decision: 'Awaiting simulated funding confirmation', units: null };
+  if (!confirmed) return { decision: 'Awaiting funding confirmation', units: null };
   if (nav + reservedLiabilityCents + cents > V2_POLICY.maxFundCents) return { decision: 'Fund maximum exceeded', units: null };
   if ((nav === 0n) !== (pricingUnits === 0n)) return { decision: 'Valuation required', units: null };
   const units = pricingUnits === 0n ? cents : cents * pricingUnits / nav;
